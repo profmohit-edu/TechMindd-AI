@@ -84,7 +84,9 @@ def _response_schema() -> Dict[str, Any]:
                                     "type": "string",
                                     "enum": ["research", "script", "seo", "thumbnail", "social"],
                                 },
-                                "payload": {"type": "object", "additionalProperties": False},
+                                "payload": {
+                                    "type": "object"
+                                },
                             },
                         },
                     },
