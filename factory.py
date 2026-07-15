@@ -21,7 +21,7 @@ from processors.script_processor import ScriptProcessor
 from processors.seo_processor import SEOProcessor
 from processors.social_processor import SocialProcessor
 from processors.thumbnail_processor import ThumbnailProcessor
-from providers.openai_provider import OpenAIProvider
+from providers.provider_factory import ProviderFactory
 
 
 LOGGER = logging.getLogger("techmindd.factory")
@@ -29,7 +29,7 @@ LOGGER = logging.getLogger("techmindd.factory")
 
 @dataclass
 class PipelineFactory:
-    provider: OpenAIProvider
+    provider: Any
     parser: ResponseParser
     template_engine: TemplateEngine
     writer: Writer
@@ -38,7 +38,8 @@ class PipelineFactory:
 
 
 def build_factory() -> PipelineFactory:
-    provider = OpenAIProvider()
+    provider_factory = ProviderFactory()
+    provider = provider_factory.default_provider()
     parser = ResponseParser()
     template_engine = TemplateEngine()
     writer = Writer()
@@ -102,7 +103,14 @@ def _response_schema() -> Dict[str, Any]:
 def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     factory = build_factory()
 
-    provider = OpenAIProvider()
+    provider_factory = ProviderFactory()
+    provider = provider_factory.default_provider()
+
+    LOGGER.info(
+        "Using provider: %s",
+        provider.__class__.__name__,
+    )
+
     registry = AgentRegistry(provider)
 
     def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
