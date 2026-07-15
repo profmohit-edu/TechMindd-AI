@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
+from agents.registry import AgentRegistry
 from core.package_writer import PackageWriter
 from core.parser import ResponseParser
 from core.template_engine import TemplateEngine
@@ -97,43 +98,74 @@ def _response_schema() -> Dict[str, Any]:
     }
 
 
-def _build_prompts(topic: str) -> tuple[str, str]:
-    system_prompt = (
-        "You are TechMindd-AI content planner. Return ONLY valid JSON. "
-        "Do not return markdown. Do not return explanations. "
-        "Do not use a top-level key named 'outputs'. "
-        "Top-level keys MUST be exactly: package_name and files. "
-        "Return exactly five file objects and use each processor exactly once: research, script, seo, thumbnail, social. "
-        "Each file object MUST contain path, content, template, context. Set template to true. "
-        "Each context MUST contain processor and payload. Payload MUST NOT be empty. "
-        "Required payload shape by processor: "
-        "research payload = {topic, audience, summary, insights} where audience is exactly 'Engineering Students' and insights is an array of 3 strings. "
-        "script payload = {title, hook, sections} where sections is an array of 4 strings. "
-        "seo payload = {title, description, keywords} where keywords is an array of 3 strings. "
-        "thumbnail payload = {headline, subheadline, visual_notes}. "
-        "social payload = {caption, hashtags} where hashtags is an array of 3 strings. "
-        "content for each file MUST explicitly reference values from that file's payload. "
-        "Output JSON shape must remain: {\"package_name\":\"...\",\"files\":[{\"path\":\"...\",\"content\":\"...\",\"template\":true,\"context\":{\"processor\":\"...\",\"payload\":{...}}}]}."
-    )
-
-    user_prompt = f"Create an AI content package for topic: {topic}."
-    return system_prompt, user_prompt
-
-
 def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     factory = build_factory()
 
-    system_prompt, user_prompt = _build_prompts(topic)
-    schema = _response_schema()
+    provider = OpenAIProvider()
+    registry = AgentRegistry(provider)
 
     LOGGER.info("Starting generation for topic: %s", topic)
 
-    payload = factory.provider.generate_structured_json(
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_schema=schema,
-    )
-    LOGGER.info("Received JSON response from OpenAI")
+    research = registry.get("research").generate(topic)
+    script = registry.get("script").generate(topic)
+    seo = registry.get("seo").generate(topic)
+    thumbnail = registry.get("thumbnail").generate(topic)
+    social = registry.get("social").generate(topic)
+
+    package_slug = re.sub(r"-+", "-", topic.strip().lower().replace(" ", "-"))
+    package_slug = re.sub(r"[^a-z0-9-]", "", package_slug)
+
+    payload = {
+        "package_name": package_slug,
+        "files": [
+            {
+                "path": "research.md",
+                "template": True,
+                "content": "",
+                "context": {
+                    "processor": "research",
+                    "payload": research,
+                },
+            },
+            {
+                "path": "script.md",
+                "template": True,
+                "content": "",
+                "context": {
+                    "processor": "script",
+                    "payload": script,
+                },
+            },
+            {
+                "path": "seo.md",
+                "template": True,
+                "content": "",
+                "context": {
+                    "processor": "seo",
+                    "payload": seo,
+                },
+            },
+            {
+                "path": "thumbnail.md",
+                "template": True,
+                "content": "",
+                "context": {
+                    "processor": "thumbnail",
+                    "payload": thumbnail,
+                },
+            },
+            {
+                "path": "social.md",
+                "template": True,
+                "content": "",
+                "context": {
+                    "processor": "social",
+                    "payload": social,
+                },
+            },
+        ],
+    }
+    LOGGER.info("Generated package payload via AgentRegistry")
 
     parsed = factory.parser.parse(payload)
     LOGGER.info("Parsed package plan: %s (%d files)", parsed.package_name, len(parsed.files))
