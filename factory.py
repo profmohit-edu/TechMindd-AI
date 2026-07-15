@@ -77,14 +77,14 @@ def _response_schema() -> Dict[str, Any]:
                         "template": {"type": "boolean"},
                         "context": {
                             "type": "object",
-                            "additionalProperties": True,
+                            "additionalProperties": False,
                             "required": ["processor", "payload"],
                             "properties": {
                                 "processor": {
                                     "type": "string",
                                     "enum": ["research", "script", "seo", "thumbnail", "social"],
                                 },
-                                "payload": {"type": "object", "additionalProperties": True},
+                                "payload": {"type": "object", "additionalProperties": False},
                             },
                         },
                     },
