@@ -26,7 +26,7 @@ class ScriptProcessor:
         return {
             "title": title,
             "hook": hook,
-            "sections": "\n".join(normalized_sections),
+            "sections": normalized_sections,
             "section_count": len(normalized_sections),
             "raw": payload,
         }

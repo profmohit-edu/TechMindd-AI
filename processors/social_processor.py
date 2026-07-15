@@ -18,7 +18,8 @@ class SocialProcessor:
         hashtags = payload.get("hashtags", [])
 
         if isinstance(hashtags, str):
-            hashtag_list: List[str] = [h.strip() for h in hashtags.split() if h.strip()]
+            cleaned = hashtags.replace(",", " ")
+            hashtag_list: List[str] = [h.strip() for h in cleaned.split() if h.strip()]
         elif isinstance(hashtags, list):
             hashtag_list = [str(h).strip() for h in hashtags if str(h).strip()]
         else:
@@ -26,7 +27,7 @@ class SocialProcessor:
 
         return {
             "caption": caption,
-            "hashtags": " ".join(hashtag_list),
+            "hashtags": hashtag_list,
             "hashtag_count": len(hashtag_list),
             "raw": payload,
         }

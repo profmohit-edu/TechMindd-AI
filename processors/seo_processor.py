@@ -28,7 +28,7 @@ class SEOProcessor:
         return {
             "title": title,
             "description": description,
-            "keywords": ", ".join(keyword_list),
+            "keywords": keyword_list,
             "keyword_count": len(keyword_list),
             "raw": payload,
         }
