@@ -97,6 +97,9 @@ class GeminiProvider:
         if not isinstance(parsed, dict):
             raise GeminiProviderRequestError("Model output JSON must be an object.")
 
+        if not parsed:
+            raise GeminiProviderRequestError("Model output JSON was empty.")
+
         return parsed
 
     @staticmethod
@@ -123,12 +126,15 @@ class GeminiProvider:
                     extra={"model": self.model, "attempt": attempt + 1, "max_attempts": _MAX_RETRIES + 1},
                 )
 
-                generation_config = types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    response_mime_type="application/json",
-                    response_schema=response_schema,
-                    temperature=temperature,
-                )
+                config_kwargs: Dict[str, Any] = {
+                    "system_instruction": system_prompt,
+                    "response_mime_type": "application/json",
+                    "temperature": temperature,
+                }
+                if response_schema:
+                    config_kwargs["response_schema"] = response_schema
+
+                generation_config = types.GenerateContentConfig(**config_kwargs)
 
                 if max_output_tokens is not None:
                     generation_config.max_output_tokens = max_output_tokens
