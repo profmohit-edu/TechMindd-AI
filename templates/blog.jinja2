@@ -1,0 +1,16 @@
+# {{ title }}
+
+## Introduction
+{{ introduction }}
+
+## Main Points
+{% for section in sections %}
+### {{ section.heading }}
+{{ section.content }}
+{% endfor %}
+
+## Conclusion
+{{ conclusion }}
+
+## CTA
+{{ cta }}

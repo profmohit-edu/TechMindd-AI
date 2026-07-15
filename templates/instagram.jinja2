@@ -1,0 +1,11 @@
+# Instagram Caption
+
+{{ caption }}
+
+✨ {{ key_message }}
+
+👉 {{ cta }}
+
+{% if hashtags is defined and hashtags %}
+{% for tag in hashtags %}#{{ tag }} {% endfor %}
+{% endif %}

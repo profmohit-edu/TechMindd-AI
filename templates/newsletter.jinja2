@@ -1,0 +1,14 @@
+# Newsletter: {{ subject }}
+
+Hi {{ audience_name | default("there") }},
+
+{{ intro }}
+
+## This week’s insight
+{{ insight }}
+
+## What to do next
+{{ next_steps }}
+
+Best,
+{{ sender_name | default("TechMindd Team") }}
