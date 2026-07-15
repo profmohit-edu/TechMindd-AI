@@ -34,7 +34,17 @@ class PackageWriter:
             context = file_spec.get("context") or {}
 
             if is_template:
-                content = self.template_engine.render(content, context)
+                processor = str(context.get("processor", "")).strip()
+                template_map = {
+                    "research": "research.jinja2",
+                    "script": "script.jinja2",
+                    "seo": "seo.jinja2",
+                    "thumbnail": "thumbnail.jinja2",
+                    "social": "social.jinja2",
+                }
+                template_name = template_map.get(processor)
+                if template_name:
+                    content = self.template_engine.render(template_name, context)
 
             full_relative = str((base / path).as_posix())
             written.append(self.writer.write(full_relative, content))
