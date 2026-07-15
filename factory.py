@@ -103,8 +103,7 @@ def _response_schema() -> Dict[str, Any]:
 def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     factory = build_factory()
 
-    provider_factory = ProviderFactory()
-    provider = provider_factory.default_provider()
+    provider = factory.provider
 
     LOGGER.info(
         "Using provider: %s",
