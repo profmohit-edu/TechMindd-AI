@@ -98,11 +98,16 @@ def _response_schema() -> Dict[str, Any]:
 
 def _build_prompts(topic: str) -> tuple[str, str]:
     system_prompt = (
-        "You are TechMindd-AI content planner. Return ONLY valid JSON matching the schema. "
-        "Generate exactly five files in outputs/{slug}/ with these filenames: "
-        "research.md, script.md, seo.md, thumbnail.md, social.md. "
-        "For each file set template=true and include Python-format placeholders in content that match context keys. "
-        "Use processor values research/script/seo/thumbnail/social respectively, and provide payload fields required by each processor."
+        "You are TechMindd-AI content planner. Return ONLY valid JSON. "
+        "Do not return markdown. Do not return explanations. "
+        "Do not use a top-level key named 'outputs'. "
+        "The top-level keys MUST be exactly: package_name, files. "
+        "The JSON MUST have EXACTLY this shape: "
+        "{\"package_name\":\"string\",\"files\":[{\"path\":\"string\",\"content\":\"string\",\"template\":true,\"context\":{\"processor\":\"research|script|seo|thumbnail|social\",\"payload\":{}}}]}. "
+        "files must contain exactly 5 objects. "
+        "Each object must contain: path, content, template, context. "
+        "context must contain: processor, payload. "
+        "Use processor values research/script/seo/thumbnail/social exactly once each across the five objects."
     )
 
     user_prompt = f"Create an AI content package for topic: {topic}."
