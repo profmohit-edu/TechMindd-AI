@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 
 from openai import APIConnectionError, APITimeoutError, BadRequestError, OpenAI, RateLimitError
 
-from config import OPENAI_API_KEY, OPENAI_MODEL
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -55,20 +55,21 @@ class OpenAIProvider:
         """
         self.timeout_seconds = timeout_seconds
         self._ensure_config()
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
-        self.model = str(OPENAI_MODEL)
+        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.model = str(settings.openai_model)
 
     @staticmethod
     def _ensure_config() -> None:
         """Validate required OpenAI configuration values.
 
         Raises:
-            OpenAIProviderConfigurationError: If `OPENAI_API_KEY` or `OPENAI_MODEL` is missing.
+            OpenAIProviderConfigurationError: If `settings.openai_api_key` or
+                `settings.openai_model` is missing.
         """
-        if not OPENAI_API_KEY or not str(OPENAI_API_KEY).strip():
-            raise OpenAIProviderConfigurationError("OPENAI_API_KEY is required but not configured.")
-        if not OPENAI_MODEL or not str(OPENAI_MODEL).strip():
-            raise OpenAIProviderConfigurationError("OPENAI_MODEL is required but not configured.")
+        if not settings.openai_api_key or not str(settings.openai_api_key).strip():
+            raise OpenAIProviderConfigurationError("settings.openai_api_key is required but not configured.")
+        if not settings.openai_model or not str(settings.openai_model).strip():
+            raise OpenAIProviderConfigurationError("settings.openai_model is required but not configured.")
 
     @staticmethod
     def _extract_usage(response: Any) -> Dict[str, int]:
