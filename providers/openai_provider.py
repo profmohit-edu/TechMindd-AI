@@ -225,6 +225,7 @@ class OpenAIProvider:
                 logger.info("OpenAI request succeeded", extra={"model": self.model, "usage": usage})
 
                 self.last_usage = usage
+                logger.info("Model JSON response:\n%s", json.dumps(data, indent=2))
                 return data
 
             except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
