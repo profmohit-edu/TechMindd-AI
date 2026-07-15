@@ -14,12 +14,13 @@ class ResearchAgent(BaseAgent):
 
     def __init__(self, provider: OpenAIProvider) -> None:
         super().__init__(provider)
-        self._system_prompt = Path("prompts/research_system.txt").read_text(encoding="utf-8")
+        self._prompt_path = Path("prompts/research.txt")
 
     def generate(self, topic: str) -> Dict[str, Any]:
-        user_prompt = f"Generate a structured research payload for topic: {topic}."
+        system_prompt = self._prompt_path.read_text(encoding="utf-8")
+        user_prompt = f"Topic: {topic}"
         return self.provider.generate_structured_json(
-            system_prompt=self._system_prompt,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             response_schema={"type": "object"},
         )
