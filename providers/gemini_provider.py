@@ -24,6 +24,7 @@ _MAX_RETRIES: int = 4
 _INITIAL_BACKOFF_SECONDS: float = 0.5
 _MAX_BACKOFF_SECONDS: float = 8.0
 _REQUEST_TIMEOUT_SECONDS: float = 30.0
+_DEFAULT_GEMINI_MODEL: str = "gemini-2.5-flash"
 
 
 class GeminiProviderError(Exception):
@@ -45,15 +46,14 @@ class GeminiProvider:
         self.timeout_seconds = timeout_seconds
         self._ensure_config()
         self.client = genai.Client(api_key=settings.gemini_api_key)
-        self.model = str(settings.gemini_model)
+        configured_model = getattr(settings, "gemini_model", "")
+        self.model = str(configured_model).strip() or _DEFAULT_GEMINI_MODEL
         self.last_usage: Dict[str, int] = {}
 
     @staticmethod
     def _ensure_config() -> None:
         if not settings.gemini_api_key or not str(settings.gemini_api_key).strip():
             raise GeminiProviderConfigurationError("settings.gemini_api_key is required but not configured.")
-        if not settings.gemini_model or not str(settings.gemini_model).strip():
-            raise GeminiProviderConfigurationError("settings.gemini_model is required but not configured.")
 
     @staticmethod
     def _extract_usage(response: Any) -> Dict[str, int]:
