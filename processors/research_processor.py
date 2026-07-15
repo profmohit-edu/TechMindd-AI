@@ -16,15 +16,16 @@ class ResearchProcessor:
 
         topic = payload.get("topic", "")
         audience = payload.get("audience", "")
+        summary = payload.get("summary", "")
         insights = payload.get("insights", [])
         if not isinstance(insights, list):
-            insights = [str(insights)]
-
-        formatted_insights = "\n".join(f"- {item}" for item in insights)
+            insights = [insights]
 
         return {
+            "title": topic,
             "topic": topic,
             "audience": audience,
-            "insights": formatted_insights,
+            "summary": summary,
+            "insights": insights,
             "raw": payload,
         }
