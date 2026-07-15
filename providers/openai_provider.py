@@ -207,12 +207,7 @@ class OpenAIProvider:
                     ],
                     "temperature": temperature,
                     "response_format": {
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "structured_response",
-                            "schema": response_schema,
-                            "strict": True,
-                        },
+                        "type": "json_object",
                     },
                     "timeout": self.timeout_seconds,
                 }
