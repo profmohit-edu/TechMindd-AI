@@ -133,14 +133,17 @@ class GeminiProvider:
                 if max_output_tokens is not None:
                     generation_config.max_output_tokens = max_output_tokens
 
-                http_options = types.HttpOptions(timeout=self.timeout_seconds * 1000)
-
+                started_at = time.monotonic()
                 response = self.client.models.generate_content(
                     model=self.model,
                     contents=user_prompt,
                     config=generation_config,
-                    http_options=http_options,
                 )
+                elapsed = time.monotonic() - started_at
+                if elapsed > self.timeout_seconds:
+                    raise TimeoutError(
+                        f"Gemini request exceeded timeout of {self.timeout_seconds:.2f}s (elapsed {elapsed:.2f}s)."
+                    )
 
                 content = self._extract_content(response)
                 data = self._parse_json_output(content)
