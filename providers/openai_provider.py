@@ -57,6 +57,7 @@ class OpenAIProvider:
         self._ensure_config()
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = str(settings.openai_model)
+        self.last_usage: Dict[str, int] = {}
 
     @staticmethod
     def _ensure_config() -> None:
@@ -223,11 +224,8 @@ class OpenAIProvider:
 
                 logger.info("OpenAI request succeeded", extra={"model": self.model, "usage": usage})
 
-                return {
-                    "data": data,
-                    "usage": usage,
-                    "model": self.model,
-                }
+                self.last_usage = usage
+                return data
 
             except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
                 last_error = exc
