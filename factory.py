@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
@@ -104,13 +105,31 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     provider = OpenAIProvider()
     registry = AgentRegistry(provider)
 
+    def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
+        agent = registry.get(name)
+        payload = agent.generate(topic)
+        return name, payload
+
     LOGGER.info("Starting generation for topic: %s", topic)
 
-    research = registry.get("research").generate(topic)
-    script = registry.get("script").generate(topic)
-    seo = registry.get("seo").generate(topic)
-    thumbnail = registry.get("thumbnail").generate(topic)
-    social = registry.get("social").generate(topic)
+    agent_order = ["research", "script", "seo", "thumbnail", "social"]
+    agent_payloads: Dict[str, Any] = {}
+    failed_agents = []
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_generate_agent, name, topic): name for name in agent_order}
+
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                agent_name, payload = future.result()
+                agent_payloads[agent_name] = payload
+            except Exception as exc:
+                LOGGER.exception("Agent generation failed for '%s': %s", name, exc)
+                failed_agents.append(name)
+
+    if failed_agents:
+        raise RuntimeError(f"Agent generation failed for: {', '.join(sorted(failed_agents))}")
 
     package_slug = re.sub(r"-+", "-", topic.strip().lower().replace(" ", "-"))
     package_slug = re.sub(r"[^a-z0-9-]", "", package_slug)
@@ -124,7 +143,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
                 "content": "",
                 "context": {
                     "processor": "research",
-                    "payload": research,
+                    "payload": agent_payloads["research"],
                 },
             },
             {
@@ -133,7 +152,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
                 "content": "",
                 "context": {
                     "processor": "script",
-                    "payload": script,
+                    "payload": agent_payloads["script"],
                 },
             },
             {
@@ -142,7 +161,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
                 "content": "",
                 "context": {
                     "processor": "seo",
-                    "payload": seo,
+                    "payload": agent_payloads["seo"],
                 },
             },
             {
@@ -151,7 +170,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
                 "content": "",
                 "context": {
                     "processor": "thumbnail",
-                    "payload": thumbnail,
+                    "payload": agent_payloads["thumbnail"],
                 },
             },
             {
@@ -160,7 +179,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
                 "content": "",
                 "context": {
                     "processor": "social",
-                    "payload": social,
+                    "payload": agent_payloads["social"],
                 },
             },
         ],
