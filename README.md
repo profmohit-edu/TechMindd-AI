@@ -21,7 +21,8 @@ TechMindd-AI generates structured AI content packages (research, script, SEO, th
 ## Requirements
 
 - Python 3.10+
-- OpenAI API key
+- OpenAI API key (when `PROVIDER=openai`)
+- Gemini API key (when `PROVIDER=gemini`)
 
 Install dependencies:
 
@@ -39,10 +40,15 @@ cp .env.example .env
 
 Set required values:
 
-- `OPENAI_API_KEY` (required)
+- `PROVIDER` (`openai` or `gemini`, default: `openai`)
+- `OPENAI_API_KEY` (required when `PROVIDER=openai`)
 - `OPENAI_MODEL` (optional, default: `gpt-4o-mini`)
 - `OPENAI_TIMEOUT_SECONDS` (optional, default: `60`)
 - `OPENAI_TEMPERATURE` (optional, default: `0.2`)
+- `GEMINI_API_KEY` (required when `PROVIDER=gemini`)
+- `GEMINI_MODEL` (optional, default: `gemini-1.5-flash`)
+- `GEMINI_TIMEOUT_SECONDS` (optional, default: `60`)
+- `GEMINI_TEMPERATURE` (optional, default: `0.2`)
 
 ## Usage
 

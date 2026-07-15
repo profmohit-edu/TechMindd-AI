@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import Any
 
 import config
+from providers.gemini_provider import GeminiProvider
 from providers.openai_provider import OpenAIProvider
 
 
 logger = logging.getLogger(__name__)
 
 
-type Provider = OpenAIProvider
+type Provider = Any
 
 
 class ProviderFactory:
@@ -23,6 +25,7 @@ class ProviderFactory:
         logger.info("Initializing ProviderFactory")
         self._registry: dict[str, Callable[[], Provider]] = {
             "openai": OpenAIProvider,
+            "gemini": GeminiProvider,
         }
 
     def get_provider(self, provider_name: str) -> Provider:
