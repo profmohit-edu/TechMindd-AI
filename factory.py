@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
@@ -132,6 +133,16 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     parsed = factory.parser.parse(payload)
     LOGGER.info("Parsed package plan: %s (%d files)", parsed.package_name, len(parsed.files))
 
+    package_slug = re.sub(r"-+", "-", parsed.package_name.strip().lower().replace(" ", "-"))
+    package_slug = re.sub(r"[^a-z0-9-]", "", package_slug)
+    file_map = {
+        "research": "research.md",
+        "script": "script.md",
+        "seo": "seo.md",
+        "thumbnail": "thumbnail.md",
+        "social": "social.md",
+    }
+
     processed_files = []
     for file_spec in parsed.files:
         context = dict(file_spec.get("context") or {})
@@ -141,6 +152,9 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
         if processor_name and processor_name in factory.processors:
             context.update(factory.processors[processor_name].process(processor_input))
             file_spec["context"] = context
+
+        if processor_name in file_map:
+            file_spec["path"] = f"{package_slug}/{file_map[processor_name]}"
 
         processed_files.append(file_spec)
 
