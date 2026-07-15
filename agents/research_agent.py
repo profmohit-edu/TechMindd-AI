@@ -22,5 +22,17 @@ class ResearchAgent(BaseAgent):
         return self.provider.generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            response_schema={"type": "object"},
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "audience": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "insights": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["topic", "audience", "summary", "insights"],
+            },
         )

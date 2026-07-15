@@ -22,5 +22,16 @@ class SEOAgent(BaseAgent):
         return self.provider.generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            response_schema={"type": "object"},
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["title", "description", "keywords"],
+            },
         )

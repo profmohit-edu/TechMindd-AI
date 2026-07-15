@@ -22,5 +22,15 @@ class SocialAgent(BaseAgent):
         return self.provider.generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            response_schema={"type": "object"},
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "caption": {"type": "string"},
+                    "hashtags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["caption", "hashtags"],
+            },
         )
