@@ -1,0 +1,19 @@
+"""Base agent abstraction for structured payload generation."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any, Dict
+
+from providers.openai_provider import OpenAIProvider
+
+
+class BaseAgent(ABC):
+    """Abstract base class for all specialized agents."""
+
+    def __init__(self, provider: OpenAIProvider) -> None:
+        self.provider = provider
+
+    @abstractmethod
+    def generate(self, topic: str) -> Dict[str, Any]:
+        """Generate a structured payload for a given topic."""
