@@ -12,17 +12,23 @@ from sentence_transformers import SentenceTransformer
 
 
 LOGGER = logging.getLogger("techmindd.rag.embedder")
+_HASH_SAMPLE_BYTES = 12
 
 
 class SentenceTransformerEmbedder:
     """Encode text into dense vectors via sentence-transformers."""
 
-    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", fallback_dimensions: int = 384) -> None:
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-small-en-v1.5",
+        fallback_dimensions: int = 384,
+        force_offline_fallback: bool = False,
+    ) -> None:
         self._model_name = model_name
         self._fallback_dimensions = fallback_dimensions
         self._model: SentenceTransformer | None = None
-        if model_name.startswith("__offline_"):
-            LOGGER.info("Using local hashing embedder for offline model sentinel: %s", model_name)
+        if force_offline_fallback:
+            LOGGER.info("Using local hashing embedder in forced offline mode for model: %s", model_name)
             return
         try:
             self._model = SentenceTransformer(model_name, local_files_only=True)
@@ -60,7 +66,7 @@ class SentenceTransformerEmbedder:
 
         for token in tokens:
             digest = hashlib.sha256(token.encode("utf-8")).digest()
-            for offset in range(0, 12, 4):
+            for offset in range(0, _HASH_SAMPLE_BYTES, 4):
                 index = int.from_bytes(digest[offset : offset + 4], "big") % self._fallback_dimensions
                 sign = 1.0 if digest[offset + 3] % 2 == 0 else -1.0
                 vector[index] += sign

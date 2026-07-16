@@ -6,6 +6,9 @@ from chromadb.telemetry.product import ProductTelemetryClient, ProductTelemetryE
 from overrides import override
 
 
+TELEMETRY_IMPL = "rag.chroma_telemetry.NoOpProductTelemetry"
+
+
 class NoOpProductTelemetry(ProductTelemetryClient):
     """Disable Chroma telemetry cleanly."""
 

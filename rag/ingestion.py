@@ -180,7 +180,7 @@ class IngestionPipeline:
         return [
             SourceDocument(
                 source=path,
-                page=1,
+                page=0,
                 text="\n\n".join(paragraphs),
             )
         ]
