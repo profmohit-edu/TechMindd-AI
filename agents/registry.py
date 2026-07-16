@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, List
 
 from agents.base_agent import BaseAgent
+from agents.director_agent import DirectorAgent
 from agents.research_agent import ResearchAgent
 from agents.script_agent import ScriptAgent
 from agents.seo_agent import SEOAgent
@@ -18,6 +19,7 @@ class AgentRegistry:
 
     def __init__(self, provider: OpenAIProvider) -> None:
         self._agents: Dict[str, BaseAgent] = {
+            "director": DirectorAgent(provider),
             "research": ResearchAgent(provider),
             "script": ScriptAgent(provider),
             "seo": SEOAgent(provider),
