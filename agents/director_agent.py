@@ -19,7 +19,7 @@ class DirectorAgent(BaseAgent):
     def generate(
         self,
         topic: str,
-        director_plan: Dict[str, Any] | None = None,
+        _director_plan: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Generate a high-level content plan for downstream agents."""
         system_prompt = self._prompt_path.read_text(encoding="utf-8")
