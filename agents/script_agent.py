@@ -16,9 +16,15 @@ class ScriptAgent(BaseAgent):
         super().__init__(provider)
         self._prompt_path = Path("prompts/script.txt")
 
-    def generate(self, topic: str) -> Dict[str, Any]:
+    def generate(
+        self,
+        topic: str,
+        director_plan: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         system_prompt = self._prompt_path.read_text(encoding="utf-8")
         user_prompt = f"Topic: {topic}"
+        if director_plan is not None and (script_focus := director_plan.get("script_focus")):
+            user_prompt = f"{user_prompt}\nScript focus: {script_focus}"
         return self.provider.generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,

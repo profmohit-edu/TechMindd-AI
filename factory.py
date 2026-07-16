@@ -112,7 +112,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
 
     registry = AgentRegistry(provider)
 
-    def _generate_agent(name: str, topic: str, director_plan: Any) -> tuple[str, Any]:
+    def _generate_agent(name: str, topic: str, director_plan: Dict[str, Any]) -> tuple[str, Any]:
         agent = registry.get(name)
         payload = agent.generate(topic, director_plan)
         return name, payload
@@ -121,12 +121,13 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     LOGGER.info("Running DirectorAgent")
     director = registry.get("director")
     director_plan = director.generate(topic)
-    LOGGER.info("Director plan: %s", director_plan)
+    LOGGER.info("Director plan generated: %s", director_plan)
 
     agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
     failed_agents = []
 
+    LOGGER.info("Launching concurrent specialist agents")
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
             executor.submit(_generate_agent, name, topic, director_plan): name
@@ -237,6 +238,7 @@ def run_pipeline(*, topic: str, output_base_path: str) -> Dict[str, Any]:
     )
 
     LOGGER.info("Wrote %d files to %s", len(written_paths), output_dir)
+    LOGGER.info("Output package written successfully")
 
     return {
         "package_name": parsed.package_name,

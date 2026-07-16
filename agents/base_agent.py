@@ -15,5 +15,9 @@ class BaseAgent(ABC):
         self.provider = provider
 
     @abstractmethod
-    def generate(self, topic: str) -> Dict[str, Any]:
+    def generate(
+        self,
+        topic: str,
+        director_plan: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         """Generate a structured payload for a given topic."""
