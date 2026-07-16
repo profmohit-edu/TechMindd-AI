@@ -83,6 +83,7 @@ class AssetManager:
         provider_used: str | list[str] | None = None,
         provider_fallback: str | list[str] | None = None,
         retries: int = 0,
+        overall_quality_score: float | None = None,
     ) -> Path:
         metadata = {
             "topic": topic,
@@ -96,6 +97,7 @@ class AssetManager:
             "provider_used": provider_used if provider_used is not None else provider,
             "provider_fallback": provider_fallback,
             "retries": retries,
+            "overall_quality_score": overall_quality_score,
             "git_commit": self.git_commit(),
             "generated_at": datetime.now(UTC).isoformat(),
         }

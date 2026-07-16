@@ -26,6 +26,7 @@ from processors.seo_processor import SEOProcessor
 from processors.social_processor import SocialProcessor
 from processors.thumbnail_processor import ThumbnailProcessor
 from providers.provider_factory import ProviderFactory
+from quality import ArtifactQuality, QualityError, QualityManager
 from rag.ingestion import IngestionPipeline
 from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
 from validation import ValidationError, ValidationManager
@@ -118,12 +119,13 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     registry = AgentRegistry(provider)
     validation_manager = ValidationManager()
+    quality_manager = QualityManager()
 
     LOGGER.info("Running DirectorAgent")
     director_plan = registry.get("director").generate(topic)
     LOGGER.info("Director plan generated")
 
-    def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
+    def _generate_agent(name: str, topic: str) -> tuple[str, Any, ArtifactQuality]:
         agent = registry.get(name)
         payload = agent.generate(topic, director_plan)
         try:
@@ -132,12 +134,22 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
             LOGGER.warning("Retrying %s agent after validation failure", name)
             payload = agent.generate(topic, director_plan)
             validation_manager.validate(name, payload)
-        return name, payload
+        quality = quality_manager.score(name, payload)
+        try:
+            quality_manager.require_quality(quality)
+        except QualityError:
+            LOGGER.warning("Retrying %s agent after low quality score", name)
+            payload = agent.generate(topic, director_plan)
+            validation_manager.validate(name, payload)
+            quality = quality_manager.score(name, payload)
+            quality_manager.require_quality(quality)
+        return name, payload, quality
 
     LOGGER.info("Starting generation for topic: %s", topic)
 
     agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
+    quality_results: Dict[str, ArtifactQuality] = {}
 
     LOGGER.info("Launching concurrent specialist agents")
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -148,11 +160,15 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         for future in as_completed(futures):
             name = futures[future]
             try:
-                agent_name, payload = future.result()
+                agent_name, payload, quality = future.result()
                 agent_payloads[agent_name] = payload
+                quality_results[agent_name] = quality
                 LOGGER.info("Agent %s completed", agent_name)
             except ValidationError:
                 LOGGER.exception("Agent %s failed validation after one retry", name)
+                raise
+            except QualityError:
+                LOGGER.exception("Agent %s failed quality scoring after one retry", name)
                 raise
             except Exception as exc:  # pragma: no cover
                 LOGGER.exception("Agent %s failed: %s", name, exc)
@@ -180,6 +196,7 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     package_dir = Path(output_base_path).expanduser().resolve() / plan.package_name
     package_dir.mkdir(parents=True, exist_ok=True)
     written = factory.package_writer.write_package(plan.files, base_path=package_dir)
+    _, quality_report = quality_manager.write_report(package_dir, quality_results)
 
     provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
     model_name = str(getattr(provider, "model", "unknown"))
@@ -198,6 +215,7 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         provider_used=usage.get("provider_used", [provider_name]),
         provider_fallback=usage.get("provider_fallback", []),
         retries=int(usage.get("retries", 0)),
+        overall_quality_score=float(quality_report["overall_score"]),
     )
     assets.write_manifest(package_dir, topic, provider_name, model_name)
     assets.create_zip(package_dir)
