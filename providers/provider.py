@@ -9,6 +9,8 @@ from typing import Any, Dict
 class BaseProvider(ABC):
     """Abstract interface for model providers used by the pipeline."""
 
+    provider_name: str = ""
+
     @abstractmethod
     def generate_structured_json(
         self,

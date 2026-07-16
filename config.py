@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
 
 load_dotenv()
+LOGGER = logging.getLogger("techmindd.config")
 
 
 @dataclass(frozen=True)
@@ -16,7 +18,13 @@ class Settings:
     """Runtime configuration loaded from environment variables."""
 
     provider: str
-    openai_api_key: str
+    openai_api_key: str = ""
+    writer_plugin: str = "markdown"
+    exporter_plugin: str = "directory"
+    retriever_plugin: str = "chroma"
+    template_pack: str = "default"
+    specialist_agents: tuple[str, ...] = ("research", "script", "seo", "thumbnail", "social")
+    director_agent: str = "director"
     openai_model: str = "gpt-4o-mini"
     openai_timeout_seconds: float = 60.0
     openai_temperature: float = 0.2
@@ -30,8 +38,23 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         provider = os.getenv("PROVIDER", "openai").strip().lower() or "openai"
-        if provider not in {"openai", "gemini"}:
-            raise ValueError("PROVIDER must be one of: openai, gemini")
+        if not provider:
+            raise ValueError("PROVIDER must be a non-empty provider plugin name")
+
+        writer_plugin = os.getenv("WRITER_PLUGIN", "markdown").strip().lower() or "markdown"
+        exporter_plugin = os.getenv("EXPORTER_PLUGIN", "directory").strip().lower() or "directory"
+        retriever_plugin = os.getenv("RETRIEVER_PLUGIN", "chroma").strip().lower() or "chroma"
+        template_pack = os.getenv("TEMPLATE_PACK", "default").strip().lower() or "default"
+        director_agent = os.getenv("DIRECTOR_AGENT", "director").strip().lower() or "director"
+        specialist_agents_raw = os.getenv("SPECIALIST_AGENTS", "research,script,seo,thumbnail,social")
+        specialist_entries = [entry.strip().lower() for entry in specialist_agents_raw.split(",")]
+        if any(not entry for entry in specialist_entries):
+            LOGGER.warning("SPECIALIST_AGENTS contains empty entries; they will be ignored")
+        specialist_agents = tuple(
+            entry for entry in specialist_entries if entry
+        )
+        if not specialist_agents:
+            raise ValueError("SPECIALIST_AGENTS must include at least one agent plugin name")
 
         openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
         if provider == "openai" and not openai_api_key:
@@ -108,6 +131,12 @@ class Settings:
 
         return cls(
             provider=provider,
+            writer_plugin=writer_plugin,
+            exporter_plugin=exporter_plugin,
+            retriever_plugin=retriever_plugin,
+            template_pack=template_pack,
+            specialist_agents=specialist_agents,
+            director_agent=director_agent,
             openai_api_key=openai_api_key,
             openai_model=openai_model,
             openai_timeout_seconds=openai_timeout_seconds,

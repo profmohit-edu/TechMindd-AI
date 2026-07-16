@@ -1,4 +1,4 @@
-"""Factory wiring for provider-parser-processors-template-writer pipeline."""
+"""Factory wiring for provider-agent-processor-template-writer-exporter pipeline."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import config
 from agents.registry import AgentRegistry
@@ -18,26 +18,33 @@ from core.package_writer import PackageWriter
 from core.parser import ResponseParser
 from core.template_engine import TemplateEngine
 from core.writer import Writer
+from exporters.base import BaseExporterPlugin
+from exporters.factory import ExporterPluginFactory
 from processors.research_processor import ResearchProcessor
 from processors.script_processor import ScriptProcessor
 from processors.seo_processor import SEOProcessor
 from processors.social_processor import SocialProcessor
 from processors.thumbnail_processor import ThumbnailProcessor
+from providers.provider import BaseProvider
 from providers.provider_factory import ProviderFactory
 from rag.ingestion import IngestionPipeline
+from writers.base import BaseWriterPlugin
+from writers.factory import WriterPluginFactory
 
 
 LOGGER = logging.getLogger("techmindd.factory")
+_MAX_PACKAGE_NAME_LENGTH = 48
 
 
 @dataclass
 class PipelineFactory:
-    provider: Any
+    provider: BaseProvider
     parser: ResponseParser
     template_engine: TemplateEngine
     writer: Writer
     package_writer: PackageWriter
-    processors: dict
+    exporter: BaseExporterPlugin
+    processors: dict[str, Any]
 
 
 def build_factory() -> PipelineFactory:
@@ -46,7 +53,15 @@ def build_factory() -> PipelineFactory:
     parser = ResponseParser()
     template_engine = TemplateEngine()
     writer = Writer()
-    package_writer = PackageWriter(template_engine=template_engine, writer=writer)
+
+    writer_plugin: BaseWriterPlugin = WriterPluginFactory().default_writer()
+    package_writer = PackageWriter(
+        template_engine=template_engine,
+        writer=writer,
+        writer_plugin=writer_plugin,
+    )
+    exporter = ExporterPluginFactory().default_exporter()
+
     processors = {
         "research": ResearchProcessor(),
         "script": ScriptProcessor(),
@@ -61,46 +76,9 @@ def build_factory() -> PipelineFactory:
         template_engine=template_engine,
         writer=writer,
         package_writer=package_writer,
+        exporter=exporter,
         processors=processors,
     )
-
-
-def _response_schema() -> Dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["package_name", "files"],
-        "properties": {
-            "package_name": {"type": "string"},
-            "files": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["path", "content", "template", "context"],
-                    "properties": {
-                        "path": {"type": "string"},
-                        "content": {"type": "string"},
-                        "template": {"type": "boolean"},
-                        "context": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["processor", "payload"],
-                            "properties": {
-                                "processor": {
-                                    "type": "string",
-                                    "enum": ["research", "script", "seo", "thumbnail", "social"],
-                                },
-                                "payload": {
-                                    "type": "object"
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
 
 
 def _compute_documents_state(knowledge_path: Path) -> str:
@@ -142,36 +120,38 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
     state_file.write_text(current_state, encoding="utf-8")
 
 
-def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | None = None) -> Dict[str, Any]:
+def run_pipeline(*, topic: str, output_base_path: str | Path, knowledge_path: str | None = None) -> dict[str, Any]:
+    output_base_path = Path(output_base_path)
     if knowledge_path:
         _ensure_knowledge_index(Path(knowledge_path))
 
     factory = build_factory()
 
     provider = factory.provider
-
-    LOGGER.info(
-        "Using provider: %s",
-        provider.__class__.__name__,
-    )
+    LOGGER.info("Using provider: %s", provider.__class__.__name__)
 
     registry = AgentRegistry(provider)
 
-    def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
+    director_name = config.settings.director_agent
+    specialist_order = list(config.settings.specialist_agents)
+
+    LOGGER.info("Running DirectorAgent")
+    director_plan = registry.get(director_name).generate(topic)
+    LOGGER.info("Director plan generated")
+
+    def _generate_agent(name: str, topic: str, plan: dict[str, Any]) -> tuple[str, Any]:
         agent = registry.get(name)
-        payload = agent.generate(topic)
+        payload = agent.generate(topic, plan)
         return name, payload
 
-    LOGGER.info("Starting generation for topic: %s", topic)
+    LOGGER.info("Launching concurrent specialist agents")
+    agent_payloads: dict[str, Any] = {}
+    failed_agents: list[str] = []
 
-    agent_order = ["research", "script", "seo", "thumbnail", "social"]
-    agent_payloads: Dict[str, Any] = {}
-    failed_agents = []
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, len(specialist_order))) as executor:
         futures = {
-            executor.submit(_generate_agent, name, topic): name
-            for name in agent_order
+            executor.submit(_generate_agent, name, topic, director_plan): name
+            for name in specialist_order
         }
         for future in as_completed(futures):
             name = futures[future]
@@ -186,28 +166,42 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     if failed_agents:
         LOGGER.warning("Some agents failed and will be excluded: %s", ", ".join(failed_agents))
 
-    bundle = {
-        "package_name": re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:48] or "output",
-        "files": [],
-    }
+    package_name = str(director_plan.get("package_name", "")).strip()
+    if not package_name:
+        package_name = (
+            re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:_MAX_PACKAGE_NAME_LENGTH] or "output"
+        )
 
-    for name in agent_order:
+    file_plan: list[dict[str, Any]] = []
+    for name in specialist_order:
         payload = agent_payloads.get(name)
         if payload is None:
             continue
-        bundle["files"].append(
+
+        processor = factory.processors.get(name)
+        normalized_payload = processor.process(payload) if processor else payload
+        context = {"processor": name, "payload": normalized_payload, **normalized_payload}
+
+        file_plan.append(
             {
-                "path": f"{name}.json",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
-                "template": False,
-                "context": {
-                    "processor": name,
-                    "payload": payload,
-                },
+                "path": name,
+                "content": json.dumps(normalized_payload, ensure_ascii=False, indent=2),
+                "template": True,
+                "template_name": f"{name}.jinja2",
+                "context": context,
             }
         )
 
-    return bundle
+    package_dir = output_base_path / package_name
+    files_written = factory.package_writer.write_package(file_plan, base_path=package_dir)
+    export_result = factory.exporter.export(package_dir=package_dir, files_written=files_written)
+
+    result = {
+        "package_name": package_name,
+        **export_result,
+    }
+    LOGGER.info("Output package written successfully")
+    return result
 
 
 def main() -> None:

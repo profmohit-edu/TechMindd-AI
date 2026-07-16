@@ -159,6 +159,14 @@ def test_run_pipeline_uses_director_plan_for_specialists_and_logs_flow(
             self.files = list(files)
             return [Path(base_path) / file_spec["path"] for file_spec in self.files]
 
+    class FakeExporter:
+        def export(self, *, package_dir: Path, files_written: list[Path]) -> dict[str, Any]:
+            return {
+                "output_dir": str(package_dir),
+                "files_written": [str(path) for path in files_written],
+                "file_count": len(files_written),
+            }
+
     package_writer = FakePackageWriter()
     pipeline_factory = factory.PipelineFactory(
         provider=object(),
@@ -166,6 +174,7 @@ def test_run_pipeline_uses_director_plan_for_specialists_and_logs_flow(
         template_engine=None,
         writer=None,
         package_writer=package_writer,
+        exporter=FakeExporter(),
         processors={
             "research": IdentityProcessor(),
             "script": IdentityProcessor(),

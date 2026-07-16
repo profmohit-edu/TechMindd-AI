@@ -4,7 +4,7 @@ TechMindd-AI generates structured AI content packages (research, script, SEO, th
 
 ## Features
 
-- Provider-driven JSON package generation
+- Dynamic plugin architecture (providers, agents, writers, exporters, retrievers, template packs)
 - Processor pipeline for content-specific context shaping
 - Template-based package writing into output directories
 - CLI entry point for one-command generation
@@ -49,6 +49,14 @@ Set required values:
 - `GEMINI_MODEL` (optional, default: `gemini-1.5-flash`)
 - `GEMINI_TIMEOUT_SECONDS` (optional, default: `60`)
 - `GEMINI_TEMPERATURE` (optional, default: `0.2`)
+- `WRITER_PLUGIN` (optional, default: `markdown`)
+- `EXPORTER_PLUGIN` (optional, default: `directory`)
+- `RETRIEVER_PLUGIN` (optional, default: `chroma`)
+- `TEMPLATE_PACK` (optional, default: `default`)
+- `DIRECTOR_AGENT` (optional, default: `director`)
+- `SPECIALIST_AGENTS` (optional, comma-separated, default: `research,script,seo,thumbnail,social`)
+
+For plugin authoring and discovery details, see [`docs/plugins.md`](docs/plugins.md).
 
 ## Usage
 

@@ -5,13 +5,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
-from providers.openai_provider import OpenAIProvider
+from providers.provider import BaseProvider
 
 
 class BaseAgent(ABC):
     """Abstract base class for all specialized agents."""
 
-    def __init__(self, provider: OpenAIProvider) -> None:
+    agent_name: str = ""
+
+    def __init__(self, provider: BaseProvider) -> None:
         self.provider = provider
 
     @abstractmethod

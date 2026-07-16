@@ -9,7 +9,7 @@ from typing import Any, Dict, Sequence
 
 import config
 from agents.base_agent import BaseAgent
-from providers.openai_provider import OpenAIProvider
+from providers.provider import BaseProvider
 from rag.retriever import RetrievedChunk, Retriever
 
 
@@ -18,10 +18,11 @@ LOGGER = logging.getLogger("techmindd.agents.research")
 
 class ResearchAgent(BaseAgent):
     """Generates structured research payloads."""
+    agent_name = "research"
 
     def __init__(
         self,
-        provider: OpenAIProvider,
+        provider: BaseProvider,
         retriever: Retriever | None = None,
     ) -> None:
         super().__init__(provider)
@@ -82,10 +83,16 @@ class ResearchAgent(BaseAgent):
             "Use the context when helpful. If context is insufficient, continue with general knowledge."
         )
 
-    def generate(self, topic: str) -> Dict[str, Any]:
+    def generate(
+        self,
+        topic: str,
+        director_plan: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         system_prompt = self._prompt_path.read_text(encoding="utf-8")
         context = self._build_context(topic)
         user_prompt = self._build_user_prompt(topic, context)
+        if director_plan is not None and (research_focus := director_plan.get("research_focus")) is not None:
+            user_prompt = f"{user_prompt}\nResearch focus: {research_focus}"
         return self.provider.generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,

@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Any, Dict
 
 from agents.base_agent import BaseAgent
-from providers.openai_provider import OpenAIProvider
+from providers.provider import BaseProvider
 
 
 class DirectorAgent(BaseAgent):
     """Plans a full package strategy before specialist agents execute."""
+    agent_name = "director"
 
-    def __init__(self, provider: OpenAIProvider) -> None:
+    def __init__(self, provider: BaseProvider) -> None:
         super().__init__(provider)
         self._prompt_path = Path("prompts/director.txt")
 
