@@ -16,7 +16,11 @@ class DirectorAgent(BaseAgent):
         super().__init__(provider)
         self._prompt_path = Path("prompts/director.txt")
 
-    def generate(self, topic: str) -> Dict[str, Any]:
+    def generate(
+        self,
+        topic: str,
+        director_plan: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         """Generate a high-level content plan for downstream agents."""
         system_prompt = self._prompt_path.read_text(encoding="utf-8")
         user_prompt = f"Topic: {topic}"
