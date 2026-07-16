@@ -4,8 +4,9 @@ TechMindd-AI generates structured AI content packages (research, script, SEO, th
 
 ## Features
 
-- Provider-driven JSON package generation
-- Processor pipeline for content-specific context shaping
+- Director-led multi-agent pipeline (strategic planning + specialist execution)
+- Jinja2-based Markdown rendering via `TemplateEngine`
+- Provider-driven structured JSON generation (agents stay data-only)
 - Template-based package writing into output directories
 - CLI entry point for one-command generation
 
@@ -14,8 +15,9 @@ TechMindd-AI generates structured AI content packages (research, script, SEO, th
 - `main.py` — minimal executable entry point
 - `factory.py` — pipeline orchestration and CLI
 - `providers/` — LLM provider abstraction + implementations
-- `processors/` — domain-specific payload processors
-- `core/` — parser, template engine, and writers
+- `agents/` — director and specialist agents (return structured JSON only)
+- `core/` — parser, template engine (`TemplateEngine`), and writers
+- `templates/` — Jinja2 `.md.j2` document templates
 - `tests/` — test suite
 
 ## Requirements
@@ -55,32 +57,68 @@ Set required values:
 Run the generator:
 
 ```bash
-python main.py --topic "Future of AI in Healthcare" --output-dir output
+python factory.py --topic "Artificial Intelligence"
+```
+
+This produces rendered Markdown files in a slug-named subdirectory:
+
+```
+output/artificial-intelligence/
+    research.md
+    script.md
+    seo.md
+    thumbnail.md
+    social.md
+```
+
+Example JSON summary printed to stdout:
+
+```json
+{
+  "package_name": "artificial-intelligence",
+  "file_count": 5,
+  "output_path": "output/artificial-intelligence",
+  "files": [
+    "output/artificial-intelligence/research.md",
+    "output/artificial-intelligence/script.md",
+    "output/artificial-intelligence/seo.md",
+    "output/artificial-intelligence/thumbnail.md",
+    "output/artificial-intelligence/social.md"
+  ]
+}
 ```
 
 Optional flags:
 
-- `--log-level` one of `DEBUG|INFO|WARNING|ERROR|CRITICAL`
+- `--output` — base output directory (default: `output`)
+- `--knowledge` — optional path to knowledge documents directory for RAG ingestion
 
-Example output:
+## Pipeline Architecture
 
-```json
-{
-  "package_name": "ai-in-healthcare",
-  "files_written": [
-    "output/ai-in-healthcare/research.md",
-    "output/ai-in-healthcare/script.md",
-    "output/ai-in-healthcare/seo.md",
-    "output/ai-in-healthcare/thumbnail.md",
-    "output/ai-in-healthcare/social.md"
-  ],
-  "file_count": 5,
-  "output_dir": "/absolute/path/to/output"
-}
+```
+Topic
+  └─► DirectorAgent (strategic plan)
+        └─► Specialist Agents (concurrent, JSON only)
+              ├─ ResearchAgent
+              ├─ ScriptAgent
+              ├─ SEOAgent
+              ├─ ThumbnailAgent
+              └─ SocialAgent
+                    └─► TemplateEngine (Jinja2 .md.j2 → Markdown)
+                              └─► PackageWriter (writes .md files)
+```
+
+Agents produce **structured JSON only**. The `TemplateEngine` is the single responsible component for Markdown rendering.
+
+## Running Tests
+
+```bash
+PYTHONPATH=. pytest -q
 ```
 
 ## Development Notes
 
 - Keep provider implementations behind the `BaseProvider` abstraction.
-- Avoid changing processor contracts without updating the schema in `factory.py`.
-- Use type hints and deterministic processor output for predictable templates.
+- Agents must return structured JSON and never generate Markdown directly.
+- Add new document types by adding a `.md.j2` template and registering it in `_DOCUMENT_TEMPLATES` inside `core/template_engine.py`.
+- Use type hints and deterministic agent output for predictable templates.
