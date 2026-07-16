@@ -25,6 +25,7 @@ from processors.social_processor import SocialProcessor
 from processors.thumbnail_processor import ThumbnailProcessor
 from providers.provider_factory import ProviderFactory
 from rag.ingestion import IngestionPipeline
+from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
 
 
 LOGGER = logging.getLogger("techmindd.factory")
@@ -104,15 +105,8 @@ def _response_schema() -> Dict[str, Any]:
 
 
 def _compute_documents_state(knowledge_path: Path) -> str:
-    if not knowledge_path.exists():
-        return ""
-
     hashes: list[str] = []
-    for path in sorted(knowledge_path.rglob("*")):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in {".pdf", ".txt", ".md", ".markdown"}:
-            continue
+    for path in discover_documents(knowledge_path):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         hashes.append(f"{path.relative_to(knowledge_path)}:{digest}")
     return "\n".join(hashes)
@@ -122,7 +116,8 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
     if not config.settings.rag_enabled:
         return
 
-    embeddings_path = Path("knowledge/embeddings")
+    knowledge_path = set_active_documents_dir(knowledge_path)
+    embeddings_path = resolve_embeddings_dir(knowledge_path)
     state_file = embeddings_path / "documents.sha256"
 
     current_state = _compute_documents_state(knowledge_path)
@@ -134,9 +129,9 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
         return
 
     LOGGER.info("Knowledge base missing or stale; starting ingestion")
-    pipeline = IngestionPipeline()
-    ingested = pipeline.ingest(knowledge_path)
-    LOGGER.info("Ingestion completed for %d files", ingested)
+    pipeline = IngestionPipeline(documents_dir=knowledge_path, embeddings_dir=embeddings_path)
+    report = pipeline.ingest(knowledge_path)
+    LOGGER.info("Ingestion completed: %d files updated", report.ingested_files)
 
     embeddings_path.mkdir(parents=True, exist_ok=True)
     state_file.write_text(current_state, encoding="utf-8")

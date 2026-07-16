@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 import chromadb
 from chromadb.api.models.Collection import Collection
+from chromadb.config import Settings
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,14 @@ class ChromaVectorStore:
     ) -> None:
         self._persist_directory = persist_directory
         self._persist_directory.mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=str(self._persist_directory))
+        settings = Settings(
+            anonymized_telemetry=False,
+            is_persistent=True,
+            persist_directory=str(self._persist_directory),
+            chroma_product_telemetry_impl="rag.chroma_telemetry.NoOpProductTelemetry",
+            chroma_telemetry_impl="rag.chroma_telemetry.NoOpProductTelemetry",
+        )
+        self._client = chromadb.PersistentClient(path=str(self._persist_directory), settings=settings)
         self._collection: Collection = self._client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -89,3 +97,7 @@ class ChromaVectorStore:
                 }
             )
         return results
+
+    def count(self) -> int:
+        """Return the number of indexed chunks."""
+        return int(self._collection.count())

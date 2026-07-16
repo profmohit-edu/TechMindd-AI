@@ -45,7 +45,7 @@ class ResearchAgent(BaseAgent):
         elapsed = time.perf_counter() - started
 
         if not retrieved_chunks:
-            LOGGER.info("No relevant chunks retrieved in %.3fs", elapsed)
+            LOGGER.info("Retrieved 0 chunks in %.3fs", elapsed)
             return ""
 
         sources: list[str] = [chunk.metadata.source for chunk in retrieved_chunks]

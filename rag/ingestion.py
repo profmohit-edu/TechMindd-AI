@@ -7,11 +7,14 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from xml.etree import ElementTree
+from zipfile import ZipFile
 
 from pypdf import PdfReader
 
 from rag.chunker import TextChunker
 from rag.embedder import SentenceTransformerEmbedder
+from rag.paths import discover_documents, resolve_documents_dir, resolve_embeddings_dir
 from rag.vector_store import ChunkMetadata, ChromaVectorStore
 
 
@@ -27,37 +30,52 @@ class SourceDocument:
     text: str
 
 
+@dataclass(frozen=True)
+class IngestionReport:
+    """Summary of a single ingestion run."""
+
+    detected_documents: int
+    ingested_files: int
+    indexed_chunks: int
+    removed_sources: int
+
+
 class IngestionPipeline:
     """Ingest supported documents into Chroma vector store."""
 
     def __init__(
         self,
         documents_dir: Path = Path("knowledge/documents"),
-        embeddings_dir: Path = Path("knowledge/embeddings"),
+        embeddings_dir: Path | None = None,
+        chunker: TextChunker | None = None,
+        embedder: SentenceTransformerEmbedder | None = None,
+        vector_store: ChromaVectorStore | None = None,
     ) -> None:
-        self._documents_dir = documents_dir
-        self._embeddings_dir = embeddings_dir
-        self._chunker = TextChunker()
-        self._embedder = SentenceTransformerEmbedder()
-        self._vector_store = ChromaVectorStore(persist_directory=embeddings_dir)
-        self._state_path = embeddings_dir / "ingestion_state.json"
+        self._documents_dir = resolve_documents_dir(documents_dir)
+        self._embeddings_dir = (
+            resolve_embeddings_dir(self._documents_dir)
+            if embeddings_dir is None
+            else Path(embeddings_dir).expanduser().resolve()
+        )
+        self._chunker = chunker or TextChunker()
+        self._embedder = embedder or SentenceTransformerEmbedder()
+        self._vector_store = vector_store or ChromaVectorStore(persist_directory=self._embeddings_dir)
+        self._state_path = self._embeddings_dir / "ingestion_state.json"
 
-    def ingest(self, documents_path: Path | None = None) -> int:
-        """Ingest changed documents only; return number of ingested files."""
-        target_dir = documents_path or self._documents_dir
+    def ingest(self, documents_path: Path | None = None) -> IngestionReport:
+        """Ingest changed documents only."""
+        target_dir = resolve_documents_dir(documents_path or self._documents_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         self._embeddings_dir.mkdir(parents=True, exist_ok=True)
+        discovered_documents = discover_documents(target_dir)
+        LOGGER.info("Detected %d documents in %s", len(discovered_documents), target_dir)
 
         previous_state = self._load_state()
         next_state: dict[str, str] = {}
 
         ingested_files = 0
-        for file_path in sorted(target_dir.rglob("*")):
-            if not file_path.is_file():
-                continue
-            if file_path.suffix.lower() not in {".pdf", ".txt", ".md", ".markdown"}:
-                continue
-
+        indexed_chunks = 0
+        for file_path in discovered_documents:
             source = str(file_path.resolve())
             digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
             next_state[source] = digest
@@ -66,8 +84,9 @@ class IngestionPipeline:
                 continue
 
             self._vector_store.delete_by_source(source)
-            self._ingest_single_file(file_path)
+            chunk_count = self._ingest_single_file(file_path)
             ingested_files += 1
+            indexed_chunks += chunk_count
             LOGGER.info("Ingested file: %s", file_path)
 
         removed_sources = set(previous_state).difference(next_state)
@@ -76,9 +95,15 @@ class IngestionPipeline:
             LOGGER.info("Removed stale source from index: %s", removed_source)
 
         self._save_state(next_state)
-        return ingested_files
+        LOGGER.info("Indexed %d chunks", indexed_chunks)
+        return IngestionReport(
+            detected_documents=len(discovered_documents),
+            ingested_files=ingested_files,
+            indexed_chunks=indexed_chunks,
+            removed_sources=len(removed_sources),
+        )
 
-    def _ingest_single_file(self, path: Path) -> None:
+    def _ingest_single_file(self, path: Path) -> int:
         docs = self._parse_file(path)
 
         ids: list[str] = []
@@ -100,7 +125,7 @@ class IngestionPipeline:
                 )
 
         if not texts:
-            return
+            return 0
 
         embeddings = self._embedder.embed_documents(texts)
         self._vector_store.upsert(
@@ -110,11 +135,14 @@ class IngestionPipeline:
             metadatas=metadatas,
         )
         LOGGER.info("Chunks created for %s: %d", path.name, len(texts))
+        return len(texts)
 
     def _parse_file(self, path: Path) -> list[SourceDocument]:
         suffix = path.suffix.lower()
         if suffix == ".pdf":
             return self._parse_pdf(path)
+        if suffix == ".docx":
+            return self._parse_docx(path)
         return [
             SourceDocument(
                 source=path,
@@ -135,6 +163,27 @@ class IngestionPipeline:
                 )
             )
         return docs
+
+    def _parse_docx(self, path: Path) -> list[SourceDocument]:
+        namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        with ZipFile(path) as archive:
+            document_xml = archive.read("word/document.xml")
+
+        root = ElementTree.fromstring(document_xml)
+        paragraphs: list[str] = []
+        for paragraph in root.findall(".//w:p", namespace):
+            text_parts = [node.text or "" for node in paragraph.findall(".//w:t", namespace)]
+            text = "".join(text_parts).strip()
+            if text:
+                paragraphs.append(text)
+
+        return [
+            SourceDocument(
+                source=path,
+                page=1,
+                text="\n\n".join(paragraphs),
+            )
+        ]
 
     def _load_state(self) -> dict[str, str]:
         if not self._state_path.exists():

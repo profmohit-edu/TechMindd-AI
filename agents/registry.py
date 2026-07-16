@@ -15,6 +15,7 @@ from agents.seo_agent import SEOAgent
 from agents.thumbnail_agent import ThumbnailAgent
 from agents.social_agent import SocialAgent
 from providers.openai_provider import OpenAIProvider
+from rag.paths import resolve_embeddings_dir
 from rag.retriever import Retriever
 from rag.vector_store import ChromaVectorStore
 
@@ -41,7 +42,7 @@ class AgentRegistry:
             LOGGER.info("RAG disabled by configuration")
             return None
 
-        store_dir = Path("knowledge/embeddings")
+        store_dir = resolve_embeddings_dir()
         if not store_dir.exists():
             LOGGER.info("Knowledge embeddings directory not found; RAG disabled for this run")
             return None
