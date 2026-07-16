@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Sequence
 
 import config
 from providers.gemini_provider import GeminiProvider
@@ -45,10 +45,11 @@ class ProviderFactory:
         provider_name = str(configured_name).strip().lower() or "openai"
         return self.get_provider(provider_name)
 
-    def managed_provider(self) -> ProviderManager:
+    def managed_provider(self, priority: Sequence[str] | None = None) -> ProviderManager:
         """Build the configured ordered provider chain."""
         providers: list[tuple[str, Provider]] = []
-        for provider_name in config.settings.provider_priority:
+        provider_priority = tuple(priority) if priority is not None else config.settings.provider_priority
+        for provider_name in provider_priority:
             if provider_name not in self._registry:
                 logger.warning("Skipping unsupported provider in priority list: %s", provider_name)
                 continue

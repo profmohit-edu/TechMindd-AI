@@ -27,6 +27,7 @@ from reflection import ReflectionDecision, ReflectionManager
 from rag.ingestion import IngestionPipeline
 from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
 from validation import ValidationError, ValidationManager
+from workflows import Workflow, WorkflowEngine
 
 
 LOGGER = logging.getLogger("techmindd.factory")
@@ -42,9 +43,9 @@ class PipelineFactory:
     processors: dict
 
 
-def build_factory() -> PipelineFactory:
+def build_factory(provider_priority: list[str] | None = None) -> PipelineFactory:
     provider_factory = ProviderFactory()
-    provider = provider_factory.managed_provider()
+    provider = provider_factory.managed_provider(priority=provider_priority)
     parser = ResponseParser()
     template_engine = TemplateEngine()
     writer = Writer()
@@ -97,12 +98,29 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
     state_file.write_text(current_state, encoding="utf-8")
 
 
-def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | None = None) -> Dict[str, Any]:
+def run_pipeline(
+    *,
+    topic: str,
+    output_base_path: str = "output",
+    knowledge_path: str | None = None,
+    workflow: Workflow | None = None,
+) -> Dict[str, Any]:
     started_at = time.perf_counter()
     if knowledge_path:
         _ensure_knowledge_index(Path(knowledge_path))
 
-    factory = build_factory()
+    provider_priority = None
+    if workflow is not None and workflow.provider != "auto":
+        configured = list(config.settings.provider_priority)
+        provider_priority = [
+            workflow.provider,
+            *[name for name in configured if name != workflow.provider],
+        ]
+    factory = (
+        build_factory()
+        if provider_priority is None
+        else build_factory(provider_priority=provider_priority)
+    )
 
     provider = factory.provider
 
@@ -114,7 +132,12 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     registry = AgentRegistry(provider)
     plugins = registry.plugins() if hasattr(registry, "plugins") else []
     plugin_by_name = {plugin.name(): plugin for plugin in plugins}
-    plugin_names = [plugin.name() for plugin in plugins] or list(factory.processors)
+    available_plugin_names = [plugin.name() for plugin in plugins] or list(factory.processors)
+    active_workflow = workflow or Workflow.implicit(available_plugin_names, output_base_path)
+    missing_plugins = [name for name in active_workflow.plugins if name not in available_plugin_names]
+    if missing_plugins:
+        raise ValueError(f"Workflow references unavailable plugins: {', '.join(missing_plugins)}")
+    plugin_names = list(active_workflow.plugins)
     validation_manager = ValidationManager(
         {plugin.name(): plugin.validator() for plugin in plugins} or None
     )
@@ -132,21 +155,28 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     def _generate_agent(name: str, topic: str) -> tuple[str, Any, ArtifactQuality]:
         agent = registry.get(name)
         payload = agent.generate(topic, director_plan)
-        try:
-            validation_manager.validate(name, payload)
-        except ValidationError:
-            LOGGER.warning("Retrying %s agent after validation failure", name)
-            payload = agent.generate(topic, director_plan)
-            validation_manager.validate(name, payload)
-        quality = quality_manager.score(name, payload)
-        try:
-            quality_manager.require_quality(quality)
-        except QualityError:
-            LOGGER.warning("Retrying %s agent after low quality score", name)
-            payload = agent.generate(topic, director_plan)
-            validation_manager.validate(name, payload)
-            quality = quality_manager.score(name, payload)
-            quality_manager.require_quality(quality)
+        if active_workflow.validation:
+            try:
+                validation_manager.validate(name, payload)
+            except ValidationError:
+                LOGGER.warning("Retrying %s agent after validation failure", name)
+                payload = agent.generate(topic, director_plan)
+                validation_manager.validate(name, payload)
+        quality = (
+            quality_manager.score(name, payload)
+            if active_workflow.quality
+            else ArtifactQuality(name, 100.0, {}, ())
+        )
+        if active_workflow.quality:
+            try:
+                quality_manager.require_quality(quality)
+            except QualityError:
+                LOGGER.warning("Retrying %s agent after low quality score", name)
+                payload = agent.generate(topic, director_plan)
+                if active_workflow.validation:
+                    validation_manager.validate(name, payload)
+                quality = quality_manager.score(name, payload)
+                quality_manager.require_quality(quality)
         return name, payload, quality
 
     LOGGER.info("Starting generation for topic: %s", topic)
@@ -154,32 +184,48 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     agent_payloads: Dict[str, Any] = {}
     quality_results: Dict[str, ArtifactQuality] = {}
 
-    LOGGER.info("Launching concurrent specialist agents")
-    with ThreadPoolExecutor(max_workers=max(1, len(plugin_names))) as executor:
-        futures = {
-            executor.submit(_generate_agent, name, topic): name
-            for name in plugin_names
-        }
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                agent_name, payload, quality = future.result()
-                agent_payloads[agent_name] = payload
-                quality_results[agent_name] = quality
-                LOGGER.info("Agent %s completed", agent_name)
-            except ValidationError:
-                LOGGER.exception("Agent %s failed validation after one retry", name)
-                raise
-            except QualityError:
-                LOGGER.exception("Agent %s failed quality scoring after one retry", name)
-                raise
-            except Exception as exc:  # pragma: no cover
-                LOGGER.exception("Agent %s failed: %s", name, exc)
-                raise RuntimeError(f"Required specialist agent failed: {name}") from exc
+    LOGGER.info(
+        "Launching specialist agents with parallel=%s",
+        active_workflow.parallel,
+    )
+
+    def _collect_result(
+        name: str,
+        generated: tuple[str, Any, ArtifactQuality],
+    ) -> None:
+        agent_name, payload, quality = generated
+        agent_payloads[agent_name] = payload
+        quality_results[agent_name] = quality
+        LOGGER.info("Agent %s completed", agent_name)
+
+    def _execute_and_collect(name: str, result_getter: Any) -> None:
+        try:
+            _collect_result(name, result_getter())
+        except ValidationError:
+            LOGGER.exception("Agent %s failed validation after one retry", name)
+            raise
+        except QualityError:
+            LOGGER.exception("Agent %s failed quality scoring after one retry", name)
+            raise
+        except Exception as exc:  # pragma: no cover
+            LOGGER.exception("Agent %s failed: %s", name, exc)
+            raise RuntimeError(f"Required specialist agent failed: {name}") from exc
+
+    if active_workflow.parallel:
+        with ThreadPoolExecutor(max_workers=max(1, len(plugin_names))) as executor:
+            futures = {
+                executor.submit(_generate_agent, name, topic): name
+                for name in plugin_names
+            }
+            for future in as_completed(futures):
+                _execute_and_collect(futures[future], future.result)
+    else:
+        for name in plugin_names:
+            _execute_and_collect(name, lambda name=name: _generate_agent(name, topic))
 
     reflection_decisions: Dict[str, ReflectionDecision] = {}
     regenerated_artifacts: list[str] = []
-    for name in plugin_names:
+    for name in plugin_names if active_workflow.reflection else []:
         decision = reflection_manager.reflect(
             name,
             agent_payloads[name],
@@ -199,7 +245,8 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         )
         candidate = registry.get(name).generate(topic, reflection_plan)
         try:
-            validation_manager.validate(name, candidate)
+            if active_workflow.validation:
+                validation_manager.validate(name, candidate)
         except ValidationError:
             LOGGER.warning("Discarding invalid reflected candidate for %s", name)
             continue
@@ -251,13 +298,18 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     package_dir = Path(output_base_path).expanduser().resolve() / plan.package_name
     package_dir.mkdir(parents=True, exist_ok=True)
     written = factory.package_writer.write_package(plan.files, base_path=package_dir)
-    _, quality_report = quality_manager.write_report(package_dir, quality_results)
-    reflection_manager.write_report(
-        package_dir,
-        reflection_decisions,
-        quality_results,
-        regenerated_artifacts,
+    quality_report = (
+        quality_manager.write_report(package_dir, quality_results)[1]
+        if active_workflow.quality
+        else {"overall_score": None}
     )
+    if active_workflow.reflection:
+        reflection_manager.write_report(
+            package_dir,
+            reflection_decisions,
+            quality_results,
+            regenerated_artifacts,
+        )
 
     provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
     model_name = str(getattr(provider, "model", "unknown"))
@@ -276,10 +328,18 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         provider_used=usage.get("provider_used", [provider_name]),
         provider_fallback=usage.get("provider_fallback", []),
         retries=int(usage.get("retries", 0)),
-        overall_quality_score=float(quality_report["overall_score"]),
-        reflection_performed=True,
+        overall_quality_score=(
+            float(quality_report["overall_score"])
+            if quality_report["overall_score"] is not None
+            else None
+        ),
+        reflection_performed=active_workflow.reflection,
         regenerated_artifacts=regenerated_artifacts,
-        final_quality_score=float(quality_report["overall_score"]),
+        final_quality_score=(
+            float(quality_report["overall_score"])
+            if quality_report["overall_score"] is not None
+            else None
+        ),
     )
     assets.write_manifest(package_dir, topic, provider_name, model_name)
     assets.create_zip(package_dir)
@@ -296,11 +356,12 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the TechMindd content pipeline")
     parser.add_argument("--topic", required=True, help="Content topic")
+    parser.add_argument("--workflow", default=None, help="Workflow YAML name")
     parser.add_argument(
         "--output",
         "--output-dir",
         dest="output",
-        default="output",
+        default=None,
         help="Base output directory",
     )
     parser.add_argument(
@@ -312,7 +373,20 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 
-    result = run_pipeline(topic=args.topic, output_base_path=args.output, knowledge_path=args.knowledge)
+    if args.workflow:
+        result = WorkflowEngine().execute(
+            args.workflow,
+            topic=args.topic,
+            runner=run_pipeline,
+            output_override=args.output,
+            knowledge_path=args.knowledge,
+        )
+    else:
+        result = run_pipeline(
+            topic=args.topic,
+            output_base_path=args.output or "output",
+            knowledge_path=args.knowledge,
+        )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
