@@ -29,6 +29,8 @@ from rag.ingestion import IngestionPipeline
 
 LOGGER = logging.getLogger("techmindd.factory")
 
+_SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".markdown"}
+
 
 @dataclass
 class PipelineFactory:
@@ -111,7 +113,7 @@ def _compute_documents_state(knowledge_path: Path) -> str:
     for path in sorted(knowledge_path.rglob("*")):
         if not path.is_file():
             continue
-        if path.suffix.lower() not in {".pdf", ".txt", ".md", ".markdown"}:
+        if path.suffix.lower() not in _SUPPORTED_EXTENSIONS:
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         hashes.append(f"{path.relative_to(knowledge_path)}:{digest}")
@@ -131,12 +133,23 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
 
     if not db_missing and previous_state == current_state:
         LOGGER.info("Knowledge base up-to-date; skipping ingestion")
+        print("[RAG] Knowledge base is up-to-date; skipping ingestion")
         return
 
     LOGGER.info("Knowledge base missing or stale; starting ingestion")
+    print("[RAG] Starting knowledge ingestion …")
     pipeline = IngestionPipeline()
-    ingested = pipeline.ingest(knowledge_path)
-    LOGGER.info("Ingestion completed for %d files", ingested)
+    result = pipeline.ingest(knowledge_path)
+    LOGGER.info(
+        "Ingestion completed: %d file(s), %d chunk(s) indexed",
+        result.files,
+        result.chunks,
+    )
+    print(
+        f"[RAG] Ingestion complete — {result.files} document(s), "
+        f"{result.chunks} chunk(s) indexed"
+    )
+    print("[RAG] Retrieval enabled")
 
     embeddings_path.mkdir(parents=True, exist_ok=True)
     state_file.write_text(current_state, encoding="utf-8")
@@ -157,12 +170,19 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     registry = AgentRegistry(provider)
 
-    def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
-        agent = registry.get(name)
-        payload = agent.generate(topic)
-        return name, payload
+    # Step 1: Run director agent sequentially first
+    LOGGER.info("Running DirectorAgent")
+    director = registry.get("director")
+    director_plan = director.generate(topic)
+    LOGGER.info("Director plan generated")
 
-    LOGGER.info("Starting generation for topic: %s", topic)
+    # Step 2: Run specialist agents concurrently, passing the director plan
+    LOGGER.info("Launching concurrent specialist agents")
+
+    def _generate_agent(name: str) -> tuple[str, Any]:
+        agent = registry.get(name)
+        payload = agent.generate(topic, director_plan)
+        return name, payload
 
     agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
@@ -170,7 +190,7 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
-            executor.submit(_generate_agent, name, topic): name
+            executor.submit(_generate_agent, name): name
             for name in agent_order
         }
         for future in as_completed(futures):
@@ -186,16 +206,15 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     if failed_agents:
         LOGGER.warning("Some agents failed and will be excluded: %s", ", ".join(failed_agents))
 
-    bundle = {
-        "package_name": re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:48] or "output",
-        "files": [],
-    }
+    # Step 3: Build file specs
+    package_name = re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:48] or "output"
+    files = []
 
     for name in agent_order:
         payload = agent_payloads.get(name)
         if payload is None:
             continue
-        bundle["files"].append(
+        files.append(
             {
                 "path": f"{name}.json",
                 "content": json.dumps(payload, ensure_ascii=False, indent=2),
@@ -207,7 +226,16 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
             }
         )
 
-    return bundle
+    # Step 4: Write output package
+    output_path = Path(output_base_path) / package_name
+    factory.package_writer.write_package(files, base_path=output_path)
+    LOGGER.info("Output package written successfully")
+
+    return {
+        "package_name": package_name,
+        "file_count": len(files),
+        "files": files,
+    }
 
 
 def main() -> None:

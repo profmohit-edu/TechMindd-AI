@@ -5,12 +5,31 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from string import Formatter
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateNotFound
 
 
 LOGGER = logging.getLogger("techmindd.template_engine")
+
+
+class _SafeFormatter(Formatter):
+    """A Formatter that keeps unknown placeholders as-is and records missing keys."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.missing: list[str] = []
+
+    def get_value(
+        self,
+        key: str | int,
+        args: Sequence[Any],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        if isinstance(key, str) and key not in kwargs:
+            self.missing.append(key)
+            return "{" + key + "}"
+        return super().get_value(key, args, kwargs)
 
 
 class TemplateEngine:
@@ -44,5 +63,8 @@ class TemplateEngine:
                 LOGGER.warning("Template file not found: %s", template)
                 return ""
 
-        formatter = Formatter()
-        return formatter.vformat(template, (), safe_context)
+        formatter = _SafeFormatter()
+        result = formatter.vformat(template, (), safe_context)
+        for key in formatter.missing:
+            LOGGER.warning("Missing template placeholder: %s", key)
+        return result

@@ -17,6 +17,16 @@ from rag.vector_store import ChunkMetadata, ChromaVectorStore
 
 LOGGER = logging.getLogger("techmindd.rag.ingestion")
 
+_SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".markdown"}
+
+
+@dataclass(frozen=True)
+class IngestionResult:
+    """Summary of a completed ingestion run."""
+
+    files: int
+    chunks: int
+
 
 @dataclass(frozen=True)
 class SourceDocument:
@@ -42,8 +52,8 @@ class IngestionPipeline:
         self._vector_store = ChromaVectorStore(persist_directory=embeddings_dir)
         self._state_path = embeddings_dir / "ingestion_state.json"
 
-    def ingest(self, documents_path: Path | None = None) -> int:
-        """Ingest changed documents only; return number of ingested files."""
+    def ingest(self, documents_path: Path | None = None) -> IngestionResult:
+        """Ingest changed documents only; return ingestion summary."""
         target_dir = documents_path or self._documents_dir
         target_dir.mkdir(parents=True, exist_ok=True)
         self._embeddings_dir.mkdir(parents=True, exist_ok=True)
@@ -52,23 +62,26 @@ class IngestionPipeline:
         next_state: dict[str, str] = {}
 
         ingested_files = 0
-        for file_path in sorted(target_dir.rglob("*")):
-            if not file_path.is_file():
-                continue
-            if file_path.suffix.lower() not in {".pdf", ".txt", ".md", ".markdown"}:
-                continue
+        total_chunks = 0
 
+        all_files = [p for p in sorted(target_dir.rglob("*")) if p.is_file() and p.suffix.lower() in _SUPPORTED_EXTENSIONS]
+        print(f"[RAG] Scanning {len(all_files)} supported file(s) in {target_dir}")
+
+        for file_path in all_files:
             source = str(file_path.resolve())
             digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
             next_state[source] = digest
 
             if previous_state.get(source) == digest:
+                LOGGER.debug("Unchanged, skipping: %s", file_path.name)
                 continue
 
+            print(f"[RAG] Indexing: {file_path.name}")
             self._vector_store.delete_by_source(source)
-            self._ingest_single_file(file_path)
+            chunks = self._ingest_single_file(file_path)
+            total_chunks += chunks
             ingested_files += 1
-            LOGGER.info("Ingested file: %s", file_path)
+            LOGGER.info("Ingested %s — %d chunk(s)", file_path.name, chunks)
 
         removed_sources = set(previous_state).difference(next_state)
         for removed_source in removed_sources:
@@ -76,9 +89,10 @@ class IngestionPipeline:
             LOGGER.info("Removed stale source from index: %s", removed_source)
 
         self._save_state(next_state)
-        return ingested_files
+        return IngestionResult(files=ingested_files, chunks=total_chunks)
 
-    def _ingest_single_file(self, path: Path) -> None:
+    def _ingest_single_file(self, path: Path) -> int:
+        """Ingest one file; return number of chunks produced."""
         docs = self._parse_file(path)
 
         ids: list[str] = []
@@ -100,7 +114,7 @@ class IngestionPipeline:
                 )
 
         if not texts:
-            return
+            return 0
 
         embeddings = self._embedder.embed_documents(texts)
         self._vector_store.upsert(
@@ -110,11 +124,14 @@ class IngestionPipeline:
             metadatas=metadatas,
         )
         LOGGER.info("Chunks created for %s: %d", path.name, len(texts))
+        return len(texts)
 
     def _parse_file(self, path: Path) -> list[SourceDocument]:
         suffix = path.suffix.lower()
         if suffix == ".pdf":
             return self._parse_pdf(path)
+        if suffix == ".docx":
+            return self._parse_docx(path)
         return [
             SourceDocument(
                 source=path,
@@ -135,6 +152,19 @@ class IngestionPipeline:
                 )
             )
         return docs
+
+    def _parse_docx(self, path: Path) -> list[SourceDocument]:
+        try:
+            import docx  # python-docx
+        except ImportError as exc:
+            raise ImportError(
+                "python-docx is required to parse .docx files. "
+                "Install it with: pip install python-docx"
+            ) from exc
+
+        doc = docx.Document(str(path))
+        text = "\n".join(para.text for para in doc.paragraphs if para.text.strip())
+        return [SourceDocument(source=path, page=1, text=text)]
 
     def _load_state(self) -> dict[str, str]:
         if not self._state_path.exists():
