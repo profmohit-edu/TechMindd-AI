@@ -27,6 +27,7 @@ from processors.social_processor import SocialProcessor
 from processors.thumbnail_processor import ThumbnailProcessor
 from providers.provider_factory import ProviderFactory
 from quality import ArtifactQuality, QualityError, QualityManager
+from reflection import ReflectionDecision, ReflectionManager
 from rag.ingestion import IngestionPipeline
 from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
 from validation import ValidationError, ValidationManager
@@ -120,6 +121,7 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     registry = AgentRegistry(provider)
     validation_manager = ValidationManager()
     quality_manager = QualityManager()
+    reflection_manager = ReflectionManager()
 
     LOGGER.info("Running DirectorAgent")
     director_plan = registry.get("director").generate(topic)
@@ -174,6 +176,51 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
                 LOGGER.exception("Agent %s failed: %s", name, exc)
                 raise RuntimeError(f"Required specialist agent failed: {name}") from exc
 
+    reflection_decisions: Dict[str, ReflectionDecision] = {}
+    regenerated_artifacts: list[str] = []
+    for name in agent_order:
+        decision = reflection_manager.reflect(
+            name,
+            agent_payloads[name],
+            director_plan,
+            quality_results[name],
+            {"valid": True, "errors": []},
+        )
+        reflection_decisions[name] = decision
+        if decision.decision != "improved":
+            continue
+
+        reflection_plan = dict(director_plan)
+        focus_key = f"{name}_focus"
+        existing_focus = str(reflection_plan.get(focus_key, "")).strip()
+        reflection_plan[focus_key] = (
+            f"{existing_focus}\nReflection feedback: {decision.feedback}".strip()
+        )
+        candidate = registry.get(name).generate(topic, reflection_plan)
+        try:
+            validation_manager.validate(name, candidate)
+        except ValidationError:
+            LOGGER.warning("Discarding invalid reflected candidate for %s", name)
+            continue
+        candidate_quality = quality_manager.score(name, candidate)
+        if candidate_quality.score > quality_results[name].score:
+            agent_payloads[name] = candidate
+            quality_results[name] = candidate_quality
+            regenerated_artifacts.append(name)
+            LOGGER.info(
+                "Accepted reflected candidate for %s: %.2f > %.2f",
+                name,
+                candidate_quality.score,
+                decision.before_score,
+            )
+        else:
+            LOGGER.info(
+                "Kept original %s artifact: reflected score %.2f <= %.2f",
+                name,
+                candidate_quality.score,
+                decision.before_score,
+            )
+
     raw_package_name = str(director_plan.get("package_name", "")) or topic
     bundle = {
         "package_name": re.sub(r"[^a-z0-9]+", "-", raw_package_name.lower()).strip("-")[:64]
@@ -197,6 +244,12 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     package_dir.mkdir(parents=True, exist_ok=True)
     written = factory.package_writer.write_package(plan.files, base_path=package_dir)
     _, quality_report = quality_manager.write_report(package_dir, quality_results)
+    reflection_manager.write_report(
+        package_dir,
+        reflection_decisions,
+        quality_results,
+        regenerated_artifacts,
+    )
 
     provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
     model_name = str(getattr(provider, "model", "unknown"))
@@ -216,6 +269,9 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         provider_fallback=usage.get("provider_fallback", []),
         retries=int(usage.get("retries", 0)),
         overall_quality_score=float(quality_report["overall_score"]),
+        reflection_performed=True,
+        regenerated_artifacts=regenerated_artifacts,
+        final_quality_score=float(quality_report["overall_score"]),
     )
     assets.write_manifest(package_dir, topic, provider_name, model_name)
     assets.create_zip(package_dir)

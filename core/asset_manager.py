@@ -84,6 +84,9 @@ class AssetManager:
         provider_fallback: str | list[str] | None = None,
         retries: int = 0,
         overall_quality_score: float | None = None,
+        reflection_performed: bool = False,
+        regenerated_artifacts: list[str] | None = None,
+        final_quality_score: float | None = None,
     ) -> Path:
         metadata = {
             "topic": topic,
@@ -98,6 +101,9 @@ class AssetManager:
             "provider_fallback": provider_fallback,
             "retries": retries,
             "overall_quality_score": overall_quality_score,
+            "reflection_performed": reflection_performed,
+            "regenerated_artifacts": regenerated_artifacts or [],
+            "final_quality_score": final_quality_score,
             "git_commit": self.git_commit(),
             "generated_at": datetime.now(UTC).isoformat(),
         }

@@ -12,13 +12,13 @@ class SocialScorer:
         caption = str(payload.get("caption", "")).strip()
         hashtags = [str(item).strip().lower() for item in payload.get("hashtags", [])]
 
-        engagement = 60.0
+        engagement = 70.0
         if any(mark in caption for mark in ("?", "!")):
             engagement += 20.0
         if any(term in caption.lower() for term in ("you", "learn", "discover", "share", "comment")):
             engagement += 20.0
 
-        hashtag_quality = 60.0
+        hashtag_quality = 40.0
         if len(set(hashtags)) == len(hashtags):
             hashtag_quality += 30.0
         if all(hashtag.startswith("#") for hashtag in hashtags):

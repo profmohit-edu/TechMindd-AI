@@ -12,17 +12,17 @@ class ScriptScorer:
         hook = str(payload.get("hook", "")).strip()
         sections = [str(item).strip() for item in payload.get("sections", [])]
 
-        hook_strength = 40.0 + (20.0 if len(hook.split()) >= 2 else 0.0)
+        hook_strength = 70.0 + (15.0 if len(hook.split()) >= 2 else 0.0)
         if "?" in hook or "!" in hook:
             hook_strength += 20.0
 
-        flow = 60.0
-        if len({section.lower() for section in sections}) == len(sections):
-            flow += 20.0
+        flow = 70.0
+        if len({section.lower() for section in sections}) < len(sections):
+            flow -= 40.0
         if sections and sum(len(section.split()) for section in sections) / len(sections) >= 5:
             flow += 20.0
 
-        engagement = 60.0
+        engagement = 70.0
         combined = " ".join([hook, *sections]).lower()
         if any(term in combined for term in ("you", "imagine", "why", "how", "discover")):
             engagement += 20.0

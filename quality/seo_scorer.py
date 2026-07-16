@@ -13,19 +13,19 @@ class SEOScorer:
         description = str(payload.get("description", "")).strip()
         keywords = [str(item).strip().lower() for item in payload.get("keywords", [])]
 
-        keyword_quality = 60.0
+        keyword_quality = 50.0
         if len(set(keywords)) == len(keywords):
-            keyword_quality += 30.0
+            keyword_quality += 40.0
         if any(" " in keyword for keyword in keywords):
             keyword_quality += 10.0
 
-        title_quality = 65.0
+        title_quality = 70.0
         if 4 <= len(title.split()) <= 12:
             title_quality += 25.0
         if keywords and any(keyword in title.lower() for keyword in keywords):
             title_quality += 10.0
 
-        description_quality = 65.0
+        description_quality = 70.0
         if 12 <= len(description.split()) <= 35:
             description_quality += 25.0
         if keywords and any(keyword in description.lower() for keyword in keywords):

@@ -13,7 +13,7 @@ class ThumbnailScorer:
         subheadline = str(payload.get("subheadline", "")).strip()
         visual_notes = str(payload.get("visual_notes", "")).strip()
 
-        ctr_potential = 60.0
+        ctr_potential = 70.0
         combined = f"{headline} {subheadline}".lower()
         if any(term in combined for term in ("how", "why", "future", "secret", "explained")):
             ctr_potential += 20.0
