@@ -10,6 +10,8 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
+from core.version import build_metadata
+
 
 class AssetManager:
     """Generates metadata, manifest and ZIP package."""
@@ -106,6 +108,7 @@ class AssetManager:
             "final_quality_score": final_quality_score,
             "git_commit": self.git_commit(),
             "generated_at": datetime.now(UTC).isoformat(),
+            "build": build_metadata(),
         }
 
         metadata_path = package_dir / "metadata.json"

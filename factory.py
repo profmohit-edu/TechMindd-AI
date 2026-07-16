@@ -20,6 +20,7 @@ from core.package_writer import PackageWriter
 from core.parser import ResponseParser
 from core.template_engine import TemplateEngine
 from core.writer import Writer
+from observability import configure_logging
 from plugins import PluginManager
 from providers.provider_factory import ProviderFactory
 from quality import ArtifactQuality, QualityError, QualityManager
@@ -192,10 +193,10 @@ def run_pipeline(
     agent_payloads: Dict[str, Any] = {}
     quality_results: Dict[str, ArtifactQuality] = {}
 
-    LOGGER.info(
-        "Launching specialist agents with parallel=%s",
-        active_workflow.parallel,
-    )
+    if active_workflow.parallel:
+        LOGGER.info("Launching concurrent specialist agents")
+    else:
+        LOGGER.info("Launching sequential specialist agents")
 
     def _collect_result(
         name: str,
@@ -386,7 +387,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+    configure_logging()
 
     if args.workflow:
         result = WorkflowEngine().execute(

@@ -1,1 +1,30 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime data
 knowledge/embeddings/
+output/
+logs/
+*.log
+factory.py.bak
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store

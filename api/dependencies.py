@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import threading
+import time
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -13,8 +15,8 @@ from typing import Any
 from uuid import uuid4
 
 import config
-from factory import run_pipeline
 from workflows import WorkflowEngine
+from observability.metrics import ACTIVE_JOBS, GENERATION_DURATION, GENERATION_JOBS
 
 
 LOGGER = logging.getLogger("techmindd.api.jobs")
@@ -64,7 +66,9 @@ class JobService:
         )
         with self._lock:
             self._jobs[record.job_id] = record
-        self._executor.submit(self._run, record.job_id)
+            ACTIVE_JOBS.inc()
+        context = copy_context()
+        self._executor.submit(context.run, self._run, record.job_id)
         return self.get(record.job_id)
 
     def get(self, job_id: str) -> JobRecord:
@@ -111,7 +115,12 @@ class JobService:
             record.logs.append(f"{progress}% · {stage.replace('_', ' ')}")
 
     def _run(self, job_id: str) -> None:
+        # Generation dependencies include local embedding models; defer them so
+        # API startup and health probes remain fast and side-effect free.
+        from factory import run_pipeline
+
         record = self.get(job_id)
+        started = time.monotonic()
         try:
             workflow = self._workflows.load(record.workflow)
             if record.provider != "auto":
@@ -147,6 +156,7 @@ class JobService:
                 result=result,
                 logs=[*self.get(job_id).logs, "100% · completed"],
             )
+            GENERATION_JOBS.labels("completed", record.workflow).inc()
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("Background generation job failed: %s", job_id)
             self._update(
@@ -156,6 +166,10 @@ class JobService:
                 error=str(exc),
                 logs=[*self.get(job_id).logs, f"Failed · {exc}"],
             )
+            GENERATION_JOBS.labels("failed", record.workflow).inc()
+        finally:
+            ACTIVE_JOBS.dec()
+            GENERATION_DURATION.labels(record.workflow).observe(time.monotonic() - started)
 
 
 _JOB_SERVICE = JobService()

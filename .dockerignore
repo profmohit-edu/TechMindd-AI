@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+.env
+frontend/node_modules
+frontend/dist
+knowledge/embeddings
+logs
+output
+*.log

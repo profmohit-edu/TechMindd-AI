@@ -1,86 +1,91 @@
 # TechMindd-AI
 
-TechMindd-AI generates structured AI content packages (research, script, SEO, thumbnail, and social content) from a single topic prompt.
+TechMindd-AI is a production-oriented, workflow-driven content generation platform. A Director plans each run; dynamically discovered plugins generate, validate, score, and reflect on artifacts; the packaging layer emits Markdown, reports, metadata, a manifest, and a ZIP archive. It is available through a CLI, FastAPI service, and React dashboard.
 
-## Features
+## Capabilities
 
-- Provider-driven JSON package generation
-- Processor pipeline for content-specific context shaping
-- Template-based package writing into output directories
-- CLI entry point for one-command generation
+- YAML workflows and automatic plugin discovery
+- OpenAI/Gemini provider failover with retry, timeout, token, and cost budgets
+- RAG-assisted research over PDF, DOCX, text, and Markdown sources
+- Validation, quality scoring, and reflection before atomic packaging
+- Background REST jobs and a responsive React dashboard
+- JSON logs, request/correlation IDs, Prometheus metrics, API keys, rate limits, CORS, and secure headers
+- Non-root multi-stage containers and automated release gates
 
-## Project Structure
+## Quick start
 
-- `main.py` — minimal executable entry point
-- `factory.py` — pipeline orchestration and CLI
-- `providers/` — LLM provider abstraction + implementations
-- `processors/` — domain-specific payload processors
-- `core/` — parser, template engine, and writers
-- `tests/` — test suite
-
-## Requirements
-
-- Python 3.10+
-- OpenAI API key (when `PROVIDER=openai`)
-- Gemini API key (when `PROVIDER=gemini`)
-
-Install dependencies:
+Requirements: Python 3.12+, Node.js 22+ for the dashboard, and at least one provider API key.
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env
+python factory.py --workflow youtube_package --topic "Artificial Intelligence"
 ```
+
+Start the API and dashboard:
+
+```bash
+uvicorn api.app:app --reload
+cd frontend
+npm ci
+npm run dev
+```
+
+Swagger is available at `http://localhost:8000/docs`; the dashboard defaults to `http://localhost:5173`.
+
+## Containers
+
+```bash
+docker compose --profile production up --build
+```
+
+The API is exposed on port 8000 and the production dashboard on port 8080. For hot-reloading frontend development use `docker compose --profile development up --build`.
 
 ## Configuration
 
-Create a `.env` file from `.env.example`:
+Copy `.env.example` and configure:
+
+- `TECHMINDD_API_KEYS`: comma-separated API keys. Authentication is disabled only when empty, which is suitable for local development.
+- `OPENAI_API_KEY`, `GEMINI_API_KEY`: provider credentials.
+- `CORS_ORIGINS`: exact comma-separated browser origins.
+- `RATE_LIMIT_PER_MINUTE`: per-client, per-process request limit.
+- `LOG_LEVEL`, `LOG_FILE`: JSON logging configuration.
+- Provider retry, timeout, token, and cost budgets are also available through CLI/configuration.
+
+Clients authenticate with `X-API-Key`. Every response returns `X-Request-ID` and `X-Correlation-ID`; callers may supply either header to propagate distributed tracing context.
+
+## Operations
+
+- Health: `GET /health`
+- Metrics: `GET /metrics`
+- OpenAPI: `GET /docs`
+- Logs: JSON lines on stdout and rotating files under `logs/`
+- Version: `VERSION`; image builds expose `BUILD_SHA` and `BUILD_DATE` in package metadata
+
+Prometheus metrics cover HTTP traffic, health, active and completed generations, duration, provider calls, latency, tokens, and cost. Protect metrics using private networking or an authenticated monitoring proxy in public deployments.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Deployment guide](docs/deployment.md)
+- [API guide](docs/api.md)
+- [Plugin developer guide](docs/plugin-development.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+
+## Development and release gates
 
 ```bash
-cp .env.example .env
+ruff check .
+pytest -q
+cd frontend && npm run build
+docker build --target api-runtime -t techmindd-ai:1.0.0 .
 ```
 
-Set required values:
+GitHub Actions repeats lint, unit and integration tests, frontend compilation, dependency/static security scans, and the production image build. Releases follow Semantic Versioning; update `VERSION` and `CHANGELOG.md` together.
 
-- `PROVIDER` (`openai` or `gemini`, default: `openai`)
-- `OPENAI_API_KEY` (required when `PROVIDER=openai`)
-- `OPENAI_MODEL` (optional, default: `gpt-4o-mini`)
-- `OPENAI_TIMEOUT_SECONDS` (optional, default: `60`)
-- `OPENAI_TEMPERATURE` (optional, default: `0.2`)
-- `GEMINI_API_KEY` (required when `PROVIDER=gemini`)
-- `GEMINI_MODEL` (optional, default: `gemini-1.5-flash`)
-- `GEMINI_TIMEOUT_SECONDS` (optional, default: `60`)
-- `GEMINI_TEMPERATURE` (optional, default: `0.2`)
+## License and contributions
 
-## Usage
-
-Run the generator:
-
-```bash
-python main.py --topic "Future of AI in Healthcare" --output-dir output
-```
-
-Optional flags:
-
-- `--log-level` one of `DEBUG|INFO|WARNING|ERROR|CRITICAL`
-
-Example output:
-
-```json
-{
-  "package_name": "ai-in-healthcare",
-  "files_written": [
-    "output/ai-in-healthcare/research.md",
-    "output/ai-in-healthcare/script.md",
-    "output/ai-in-healthcare/seo.md",
-    "output/ai-in-healthcare/thumbnail.md",
-    "output/ai-in-healthcare/social.md"
-  ],
-  "file_count": 5,
-  "output_dir": "/absolute/path/to/output"
-}
-```
-
-## Development Notes
-
-- Keep provider implementations behind the `BaseProvider` abstraction.
-- Avoid changing processor contracts without updating the schema in `factory.py`.
-- Use type hints and deterministic processor output for predictable templates.
+Contributions should include tests and documentation for changed public behavior. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Review the repository license before redistribution.

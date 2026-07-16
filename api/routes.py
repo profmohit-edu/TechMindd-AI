@@ -23,7 +23,6 @@ from api.schemas import (
 )
 from plugins import PluginManager
 from workflows import WorkflowEngine
-from rag.ingestion import IngestionPipeline
 from rag.paths import resolve_documents_dir
 
 
@@ -169,6 +168,8 @@ async def upload_knowledge(file: UploadFile = File(...)) -> KnowledgeResponse:
 
 @router.post("/knowledge/reindex", response_model=KnowledgeResponse)
 async def reindex_knowledge() -> KnowledgeResponse:
+    from rag.ingestion import IngestionPipeline
+
     report = await run_in_threadpool(IngestionPipeline().ingest)
     return KnowledgeResponse(
         status="indexed",

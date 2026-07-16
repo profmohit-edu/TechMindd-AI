@@ -9,6 +9,13 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
+from observability.metrics import (
+    PROVIDER_COST,
+    PROVIDER_LATENCY,
+    PROVIDER_REQUESTS,
+    PROVIDER_TOKENS,
+)
+
 
 LOGGER = logging.getLogger("techmindd.providers.failover")
 
@@ -138,6 +145,11 @@ class ProviderManager:
                     latency=time.monotonic() - started,
                 )
                 self._record_and_enforce_budget(record)
+                PROVIDER_REQUESTS.labels(provider_name, "success").inc()
+                PROVIDER_LATENCY.labels(provider_name).observe(record.latency)
+                PROVIDER_TOKENS.labels(provider_name, "input").inc(record.input_tokens)
+                PROVIDER_TOKENS.labels(provider_name, "output").inc(record.output_tokens)
+                PROVIDER_COST.labels(provider_name).inc(record.estimated_cost)
                 LOGGER.info(
                     "Generation completed with provider=%s fallback=%s retries=%d latency=%.3fs tokens=%d cost=%.6f",
                     record.provider_used,
@@ -152,8 +164,10 @@ class ProviderManager:
                 raise
             except Exception as exc:  # noqa: BLE001
                 if not self._is_retryable(exc):
+                    PROVIDER_REQUESTS.labels(provider_name, "error").inc()
                     raise
                 last_error = exc
+                PROVIDER_REQUESTS.labels(provider_name, "retryable_error").inc()
                 LOGGER.warning(
                     "Provider %s failed with retryable error; attempt=%d/%d error=%s",
                     provider_name,

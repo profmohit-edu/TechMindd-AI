@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class GenerateRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=500)
     workflow: str = Field(default="youtube_package", pattern=r"^[a-zA-Z0-9_-]+$")
     provider: str | None = Field(default=None, pattern=r"^(openai|gemini|auto)$")
+
+    @field_validator("topic")
+    @classmethod
+    def sanitize_topic(cls, value: str) -> str:
+        if any(ord(character) < 32 and character not in "\t\n\r" for character in value):
+            raise ValueError("topic contains unsupported control characters")
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("topic cannot be empty")
+        return cleaned
 
 
 class GenerateResponse(BaseModel):
