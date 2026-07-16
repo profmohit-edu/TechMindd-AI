@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 
 from api.dependencies import JobService, get_job_service, provider_health
 from api.schemas import (
@@ -22,9 +25,8 @@ from api.schemas import (
     WorkflowResponse,
 )
 from plugins import PluginManager
-from workflows import WorkflowEngine
 from rag.paths import resolve_documents_dir
-
+from workflows import WorkflowEngine
 
 router = APIRouter()
 
@@ -36,7 +38,7 @@ router = APIRouter()
 )
 def generate(
     payload: GenerateRequest,
-    jobs: JobService = Depends(get_job_service),
+    jobs: Annotated[JobService, Depends(get_job_service)],
 ) -> GenerateResponse:
     try:
         job = jobs.create(payload.topic, payload.workflow, payload.provider)
@@ -46,14 +48,16 @@ def generate(
 
 
 @router.get("/jobs", response_model=list[JobStatusResponse])
-def jobs_list(jobs: JobService = Depends(get_job_service)) -> list[JobStatusResponse]:
+def jobs_list(
+    jobs: Annotated[JobService, Depends(get_job_service)],
+) -> list[JobStatusResponse]:
     return [JobStatusResponse(**job.__dict__) for job in jobs.list()]
 
 
 @router.post("/jobs/{job_id}/retry", response_model=GenerateResponse, status_code=202)
 def retry_job(
     job_id: str,
-    jobs: JobService = Depends(get_job_service),
+    jobs: Annotated[JobService, Depends(get_job_service)],
 ) -> GenerateResponse:
     try:
         job = jobs.retry(job_id)
@@ -65,7 +69,7 @@ def retry_job(
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
 def job_status(
     job_id: str,
-    jobs: JobService = Depends(get_job_service),
+    jobs: Annotated[JobService, Depends(get_job_service)],
 ) -> JobStatusResponse:
     try:
         job = jobs.get(job_id)
@@ -78,7 +82,7 @@ def job_status(
 def job_result(
     job_id: str,
     request: Request,
-    jobs: JobService = Depends(get_job_service),
+    jobs: Annotated[JobService, Depends(get_job_service)],
 ) -> JobResultResponse:
     try:
         package_dir = jobs.package_dir(job_id)
@@ -92,12 +96,8 @@ def job_result(
     for path in sorted(package_dir.iterdir()):
         if not path.is_file():
             continue
-        url = str(
-            request.url_for("download_job_file", job_id=job_id, filename=path.name)
-        )
-        output_files.append(
-            OutputFile(name=path.name, size=path.stat().st_size, download_url=url)
-        )
+        url = str(request.url_for("download_job_file", job_id=job_id, filename=path.name))
+        output_files.append(OutputFile(name=path.name, size=path.stat().st_size, download_url=url))
     return JobResultResponse(
         job_id=job_id,
         package_metadata=metadata,
@@ -110,7 +110,7 @@ def job_result(
 def download_job_file(
     job_id: str,
     filename: str,
-    jobs: JobService = Depends(get_job_service),
+    jobs: Annotated[JobService, Depends(get_job_service)],
 ) -> FileResponse:
     try:
         package_dir = jobs.package_dir(job_id)
@@ -152,7 +152,7 @@ def providers() -> list[ProviderResponse]:
 
 
 @router.post("/knowledge/upload", response_model=KnowledgeResponse)
-async def upload_knowledge(file: UploadFile = File(...)) -> KnowledgeResponse:
+async def upload_knowledge(file: Annotated[UploadFile, File()]) -> KnowledgeResponse:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".pdf", ".docx", ".txt", ".md", ".markdown"}:
         raise HTTPException(status_code=415, detail="Unsupported knowledge file type")
@@ -162,7 +162,18 @@ async def upload_knowledge(file: UploadFile = File(...)) -> KnowledgeResponse:
     content = await file.read(20_000_001)
     if len(content) > 20_000_000:
         raise HTTPException(status_code=413, detail="Knowledge file exceeds 20 MB")
-    (documents_dir / safe_name).write_bytes(content)
+    destination = documents_dir / safe_name
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=documents_dir, delete=False) as temporary:
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        temporary_path.replace(destination)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
     return KnowledgeResponse(filename=safe_name, status="uploaded")
 
 

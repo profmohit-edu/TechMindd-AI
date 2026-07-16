@@ -10,7 +10,6 @@ from typing import Sequence
 
 from sentence_transformers import SentenceTransformer
 
-
 LOGGER = logging.getLogger("techmindd.rag.embedder")
 # Sample three 4-byte slices from the SHA-256 digest to spread each token across
 # multiple dimensions while keeping the fallback embedder fast and deterministic.
@@ -31,7 +30,9 @@ class SentenceTransformerEmbedder:
         self._fallback_dimensions = fallback_dimensions
         self._model: SentenceTransformer | None = None
         if force_offline_fallback:
-            LOGGER.info("Using local hashing embedder in forced offline mode for model: %s", model_name)
+            LOGGER.info(
+                "Using local hashing embedder in forced offline mode for model: %s", model_name
+            )
             return
         try:
             self._model = SentenceTransformer(model_name, local_files_only=True)
@@ -70,7 +71,9 @@ class SentenceTransformerEmbedder:
         for token in tokens:
             digest = hashlib.sha256(token.encode("utf-8")).digest()
             for offset in range(0, _HASH_SAMPLE_BYTES, 4):
-                index = int.from_bytes(digest[offset : offset + 4], "big") % self._fallback_dimensions
+                index = (
+                    int.from_bytes(digest[offset : offset + 4], "big") % self._fallback_dimensions
+                )
                 # Flip the sign based on the sampled byte so hashed terms distribute
                 # across the vector space instead of only accumulating positive counts.
                 sign = 1.0 if digest[offset + 3] % 2 == 0 else -1.0

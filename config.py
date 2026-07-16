@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 
@@ -34,9 +33,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        provider = os.getenv("PROVIDER", "openai").strip().lower() or "openai"
-        if provider not in {"openai", "gemini"}:
-            raise ValueError("PROVIDER must be one of: openai, gemini")
+        provider = os.getenv("PROVIDER", "auto").strip().lower() or "auto"
+        if provider not in {"auto", "openai", "gemini"}:
+            raise ValueError("PROVIDER must be one of: auto, openai, gemini")
 
         openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
 
@@ -46,19 +45,14 @@ class Settings:
         openai_temperature_raw = os.getenv("OPENAI_TEMPERATURE", "0.2").strip()
 
         gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not openai_api_key and not gemini_api_key:
-            raise ValueError(
-                "At least one provider API key is required. Set OPENAI_API_KEY or "
-                "GEMINI_API_KEY in your shell or in a .env file."
-            )
-
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip() or "gemini-1.5-flash"
         gemini_timeout_raw = os.getenv("GEMINI_TIMEOUT_SECONDS", "60").strip()
         gemini_temperature_raw = os.getenv("GEMINI_TEMPERATURE", "0.2").strip()
 
         rag_enabled_raw = os.getenv("RAG_ENABLED", "true").strip().lower()
         rag_top_k_raw = os.getenv("RAG_TOP_K", "5").strip()
-        priority_raw = os.getenv("PROVIDER_PRIORITY", "").strip() or f"{provider},openai,gemini"
+        default_priority = "openai,gemini" if provider == "auto" else f"{provider},openai,gemini"
+        priority_raw = os.getenv("PROVIDER_PRIORITY", "").strip() or default_priority
         provider_priority = tuple(
             dict.fromkeys(item.strip().lower() for item in priority_raw.split(",") if item.strip())
         )

@@ -2,6 +2,11 @@ import axios from 'axios'
 import type { Job, JobResult, Plugin, Provider, Workflow } from './types'
 
 export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000', timeout: 30000 })
+api.interceptors.request.use(config => {
+  const apiKey = sessionStorage.getItem('techminddApiKey')
+  if (apiKey) config.headers.set('X-API-Key', apiKey)
+  return config
+})
 export const endpoints = {
   jobs: () => api.get<Job[]>('/jobs').then(r => r.data),
   job: (id:string) => api.get<Job>(`/jobs/${id}`).then(r => r.data),

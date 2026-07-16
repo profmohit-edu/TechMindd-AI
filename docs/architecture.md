@@ -25,7 +25,7 @@ flowchart LR
 
 The workflow engine loads a named YAML definition and discovers requested plugins through the registry. The Director runs first and its plan becomes shared specialist context. Research augments that context through the RAG retriever. Each plugin owns its agent-facing schema, processor, validator, scorer, reflector, prompt, and output template.
 
-ProviderManager applies priority-based failover, retry classification, request timeouts, and aggregate token/cost budgets. Validation and quality each allow one targeted regeneration. Reflection may request one improvement, retained only when its score increases. Package material is staged and published only after all gates succeed, preventing partial packages.
+ProviderManager applies priority-based failover, retry classification, request timeouts, and aggregate token/cost budgets. Validation and quality each allow one targeted regeneration. Reflection may request one improvement, retained only when its score increases. Rendering is preflighted into a staging directory and the complete package atomically replaces any previous version only after every gate succeeds.
 
 The REST layer maintains in-memory background job state, while the dashboard polls it. Production middleware establishes request/correlation context, API-key authentication, rate limiting, safe headers, CORS, structured request logs, and HTTP metrics. Provider and generation paths emit domain-specific Prometheus metrics.
 

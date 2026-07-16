@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any, Dict, List
 
 
@@ -35,6 +36,7 @@ class ResponseParser:
             raise ValueError("files must be a list")
 
         normalized_files: List[Dict[str, Any]] = []
+        seen_paths: set[str] = set()
         for idx, entry in enumerate(files):
             if not isinstance(entry, dict):
                 raise ValueError(f"files[{idx}] must be an object")
@@ -44,14 +46,22 @@ class ResponseParser:
 
             if not isinstance(path, str) or not path.strip():
                 raise ValueError(f"files[{idx}].path must be a non-empty string")
+            normalized_path = PurePosixPath(path.strip().replace("\\", "/"))
+            if normalized_path.is_absolute() or ".." in normalized_path.parts:
+                raise ValueError(f"files[{idx}].path must stay within the package")
+            if normalized_path.as_posix() in seen_paths:
+                raise ValueError(f"files[{idx}].path duplicates an earlier output")
+            seen_paths.add(normalized_path.as_posix())
             if not isinstance(content, str):
                 raise ValueError(f"files[{idx}].content must be a string")
 
-            normalized_files.append({
-                "path": path.strip(),
-                "content": content,
-                "template": bool(entry.get("template", False)),
-                "context": entry.get("context") or {},
-            })
+            normalized_files.append(
+                {
+                    "path": normalized_path.as_posix(),
+                    "content": content,
+                    "template": bool(entry.get("template", False)),
+                    "context": entry.get("context") or {},
+                }
+            )
 
         return ParsedPackagePlan(package_name=package_name.strip(), files=normalized_files)

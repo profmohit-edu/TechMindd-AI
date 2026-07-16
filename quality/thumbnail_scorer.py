@@ -27,7 +27,9 @@ class ThumbnailScorer:
             clarity += 10.0
 
         total_copy_words = len(headline.split()) + len(subheadline.split())
-        brevity = 100.0 if total_copy_words <= 12 else max(40.0, 100.0 - (total_copy_words - 12) * 5.0)
+        brevity = (
+            100.0 if total_copy_words <= 12 else max(40.0, 100.0 - (total_copy_words - 12) * 5.0)
+        )
         return {
             "ctr_potential": min(ctr_potential, 100.0),
             "clarity": min(clarity, 100.0),

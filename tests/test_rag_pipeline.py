@@ -51,10 +51,17 @@ def test_discover_documents_recurses_and_filters_supported_types(tmp_path: Path)
 
     discovered = discover_documents(docs_dir)
 
-    assert sorted(path.name for path in discovered) == ["guide.md", "notes.txt", "paper.pdf", "report.docx"]
+    assert sorted(path.name for path in discovered) == [
+        "guide.md",
+        "notes.txt",
+        "paper.pdf",
+        "report.docx",
+    ]
 
 
-def test_docx_ingestion_indexes_chunks_and_incremental_runs_skip_unchanged_files(tmp_path: Path) -> None:
+def test_docx_ingestion_indexes_chunks_and_incremental_runs_skip_unchanged_files(
+    tmp_path: Path,
+) -> None:
     docs_dir = tmp_path / "knowledge" / "documents"
     docs_dir.mkdir(parents=True)
     _create_minimal_docx(docs_dir / "ai.docx", "Artificial intelligence improves automation.")
@@ -62,7 +69,9 @@ def test_docx_ingestion_indexes_chunks_and_incremental_runs_skip_unchanged_files
     pipeline = IngestionPipeline(
         documents_dir=docs_dir,
         embeddings_dir=tmp_path / "knowledge" / "embeddings",
-        embedder=SentenceTransformerEmbedder(model_name="BAAI/bge-small-en-v1.5", force_offline_fallback=True),
+        embedder=SentenceTransformerEmbedder(
+            model_name="BAAI/bge-small-en-v1.5", force_offline_fallback=True
+        ),
     )
 
     first_report = pipeline.ingest()
@@ -89,7 +98,9 @@ def test_retrieval_returns_relevant_chunks(tmp_path: Path) -> None:
     )
 
     embeddings_dir = tmp_path / "knowledge" / "embeddings"
-    embedder = SentenceTransformerEmbedder(model_name="BAAI/bge-small-en-v1.5", force_offline_fallback=True)
+    embedder = SentenceTransformerEmbedder(
+        model_name="BAAI/bge-small-en-v1.5", force_offline_fallback=True
+    )
     pipeline = IngestionPipeline(
         documents_dir=docs_dir,
         embeddings_dir=embeddings_dir,

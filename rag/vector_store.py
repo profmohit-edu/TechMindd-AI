@@ -9,6 +9,7 @@ from typing import Any, Sequence
 import chromadb
 from chromadb.api.models.Collection import Collection
 from chromadb.config import Settings
+
 from rag.chroma_telemetry import TELEMETRY_IMPL
 
 
@@ -39,7 +40,9 @@ class ChromaVectorStore:
             chroma_product_telemetry_impl=TELEMETRY_IMPL,
             chroma_telemetry_impl=TELEMETRY_IMPL,
         )
-        self._client = chromadb.PersistentClient(path=str(self._persist_directory), settings=settings)
+        self._client = chromadb.PersistentClient(
+            path=str(self._persist_directory), settings=settings
+        )
         self._collection: Collection = self._client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -89,7 +92,7 @@ class ChromaVectorStore:
         distances = response.get("distances", [[]])[0]
 
         results: list[dict[str, Any]] = []
-        for text, metadata, distance in zip(documents, metadatas, distances):
+        for text, metadata, distance in zip(documents, metadatas, distances, strict=True):
             results.append(
                 {
                     "text": text,

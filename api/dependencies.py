@@ -7,17 +7,16 @@ import logging
 import os
 import threading
 import time
-from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import config
-from workflows import WorkflowEngine
 from observability.metrics import ACTIVE_JOBS, GENERATION_DURATION, GENERATION_JOBS
-
+from workflows import WorkflowEngine
 
 LOGGER = logging.getLogger("techmindd.api.jobs")
 
@@ -143,9 +142,7 @@ class JobService:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             provider_used = metadata.get("provider_used") or record.provider
             provider_label = (
-                ",".join(provider_used)
-                if isinstance(provider_used, list)
-                else str(provider_used)
+                ",".join(provider_used) if isinstance(provider_used, list) else str(provider_used)
             )
             self._update(
                 job_id,

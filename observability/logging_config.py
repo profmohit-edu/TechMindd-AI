@@ -12,7 +12,6 @@ from typing import Any
 
 from observability.context import correlation_id, request_id
 
-
 _STANDARD_FIELDS = set(logging.makeLogRecord({}).__dict__)
 
 

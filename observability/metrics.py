@@ -2,7 +2,6 @@
 
 from prometheus_client import Counter, Gauge, Histogram
 
-
 HTTP_REQUESTS = Counter(
     "techmindd_http_requests_total",
     "HTTP requests",

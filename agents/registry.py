@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import config
 from agents.base_agent import BaseAgent
 from agents.director_agent import DirectorAgent
 from plugins import BasePlugin, PluginManager
-from providers.openai_provider import OpenAIProvider
 from rag.paths import resolve_embeddings_dir
 from rag.retriever import Retriever
 from rag.vector_store import ChromaVectorStore
-
 
 LOGGER = logging.getLogger("techmindd.agents.registry")
 
@@ -22,9 +19,9 @@ LOGGER = logging.getLogger("techmindd.agents.registry")
 class AgentRegistry:
     """Centralized registry for initializing and accessing agents."""
 
-    def __init__(self, provider: OpenAIProvider) -> None:
-        retriever = self._build_retriever()
+    def __init__(self, provider: Any) -> None:
         self._plugin_registry = PluginManager().discover()
+        retriever = self._build_retriever() if "research" in self._plugin_registry.names() else None
         self._agents: Dict[str, BaseAgent] = {"director": DirectorAgent(provider)}
         for plugin in self._plugin_registry.all():
             self._agents[plugin.name()] = plugin.create_agent(provider, retriever=retriever)

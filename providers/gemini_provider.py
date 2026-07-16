@@ -48,12 +48,15 @@ class GeminiProvider:
         self.client = genai.Client(api_key=settings.gemini_api_key)
         configured_model = getattr(settings, "gemini_model", "")
         self.model = str(configured_model).strip() or _DEFAULT_GEMINI_MODEL
+        self.max_retries = _MAX_RETRIES
         self.last_usage: Dict[str, int] = {}
 
     @staticmethod
     def _ensure_config() -> None:
         if not settings.gemini_api_key or not str(settings.gemini_api_key).strip():
-            raise GeminiProviderConfigurationError("settings.gemini_api_key is required but not configured.")
+            raise GeminiProviderConfigurationError(
+                "settings.gemini_api_key is required but not configured."
+            )
 
     @staticmethod
     def _extract_usage(response: Any) -> Dict[str, int]:
@@ -105,7 +108,7 @@ class GeminiProvider:
     @staticmethod
     def _compute_backoff(attempt: int) -> float:
         base = min(_INITIAL_BACKOFF_SECONDS * (2**attempt), _MAX_BACKOFF_SECONDS)
-        jitter = random.uniform(0.0, 0.25 * base)
+        jitter = random.uniform(0.0, 0.25 * base)  # noqa: S311 - retry jitter
         return base + jitter
 
     def generate_structured_json(
@@ -119,11 +122,15 @@ class GeminiProvider:
     ) -> Dict[str, Any]:
         last_error: Optional[Exception] = None
 
-        for attempt in range(_MAX_RETRIES + 1):
+        for attempt in range(self.max_retries + 1):
             try:
                 logger.info(
                     "Sending Gemini request",
-                    extra={"model": self.model, "attempt": attempt + 1, "max_attempts": _MAX_RETRIES + 1},
+                    extra={
+                        "model": self.model,
+                        "attempt": attempt + 1,
+                        "max_attempts": self.max_retries + 1,
+                    },
                 )
 
                 config_kwargs: Dict[str, Any] = {
@@ -158,7 +165,7 @@ class GeminiProvider:
                 logger.info("Gemini request succeeded", extra={"model": self.model, "usage": usage})
 
                 self.last_usage = usage
-                logger.info("Model JSON response:\n%s", json.dumps(data, indent=2))
+                logger.debug("Gemini returned structured JSON with %d fields", len(data))
                 return data
 
             except GeminiProviderError:
@@ -166,7 +173,7 @@ class GeminiProvider:
 
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                if attempt >= _MAX_RETRIES:
+                if attempt >= self.max_retries:
                     logger.error(
                         "Gemini request failed after retries",
                         extra={"error": str(exc), "attempts": attempt + 1},
@@ -176,7 +183,11 @@ class GeminiProvider:
                 sleep_seconds = self._compute_backoff(attempt)
                 logger.warning(
                     "Gemini error; retrying with backoff",
-                    extra={"error": str(exc), "sleep_seconds": sleep_seconds, "attempt": attempt + 1},
+                    extra={
+                        "error": str(exc),
+                        "sleep_seconds": sleep_seconds,
+                        "attempt": attempt + 1,
+                    },
                 )
                 time.sleep(sleep_seconds)
 

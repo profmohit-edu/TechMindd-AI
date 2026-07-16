@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import zipfile
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,14 +28,15 @@ class AssetManager:
     @staticmethod
     def git_commit() -> str:
         try:
-            return (
-                subprocess.check_output(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                )
-                .strip()
-            )
+            git_executable = shutil.which("git")
+            if git_executable is None:
+                return "unknown"
+            return subprocess.check_output(  # noqa: S603 - fixed git arguments
+                [git_executable, "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
         except Exception:
             return "unknown"
 
@@ -44,6 +46,7 @@ class AssetManager:
         topic: str,
         provider: str,
         model: str,
+        package_name: str | None = None,
     ) -> Path:
         files: list[dict[str, Any]] = []
 
@@ -57,7 +60,7 @@ class AssetManager:
                 )
 
         manifest = {
-            "package_name": package_dir.name,
+            "package_name": package_name or package_dir.name,
             "topic": topic,
             "generated_at": datetime.now(UTC).isoformat(),
             "provider": provider,

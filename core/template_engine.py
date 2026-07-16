@@ -9,7 +9,6 @@ from typing import Any, Dict
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateNotFound
 
-
 LOGGER = logging.getLogger("techmindd.template_engine")
 
 
@@ -26,7 +25,7 @@ class TemplateEngine:
         self.templates_dir = Path(templates_dir)
         self._jinja_env = Environment(
             loader=FileSystemLoader(str(self.templates_dir)),
-            autoescape=False,
+            autoescape=False,  # Markdown output; escaping would corrupt content.  # noqa: S701
             trim_blocks=True,
             lstrip_blocks=True,
             undefined=StrictUndefined,
@@ -48,9 +47,8 @@ class TemplateEngine:
             try:
                 jinja_template = self._jinja_env.get_template(template)
                 return jinja_template.render(**safe_context)
-            except TemplateNotFound:
-                LOGGER.warning("Template file not found: %s", template)
-                return ""
+            except TemplateNotFound as exc:
+                raise FileNotFoundError(f"Template file not found: {template}") from exc
 
         formatter = Formatter()
         return formatter.vformat(template, (), safe_context)

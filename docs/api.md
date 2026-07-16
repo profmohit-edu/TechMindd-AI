@@ -1,6 +1,7 @@
 # API guide
 
 The interactive OpenAPI specification is served at `/docs`. Unless no keys are configured for local development, send `X-API-Key` on protected routes. Send `X-Request-ID` and `X-Correlation-ID` to preserve tracing context; generated values are returned when omitted.
+When deployed behind a path-based proxy, set `ROOT_PATH` to the public prefix (the supplied production Compose profile uses `/api`).
 
 ## Generate and poll
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 SUPPORTED_DOCUMENT_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 _KNOWLEDGE_DIR_ENV = "TECHMINDD_KNOWLEDGE_DIR"
 

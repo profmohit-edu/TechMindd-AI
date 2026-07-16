@@ -7,16 +7,15 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 from zipfile import ZipFile
 
+from defusedxml import ElementTree
 from pypdf import PdfReader
 
 from rag.chunker import TextChunker
 from rag.embedder import SentenceTransformerEmbedder
 from rag.paths import discover_documents, resolve_documents_dir, resolve_embeddings_dir
-from rag.vector_store import ChunkMetadata, ChromaVectorStore
-
+from rag.vector_store import ChromaVectorStore, ChunkMetadata
 
 LOGGER = logging.getLogger("techmindd.rag.ingestion")
 _MAX_DOCX_XML_SIZE_BYTES = 5_000_000
@@ -60,7 +59,9 @@ class IngestionPipeline:
         )
         self._chunker = chunker or TextChunker()
         self._embedder = embedder or SentenceTransformerEmbedder()
-        self._vector_store = vector_store or ChromaVectorStore(persist_directory=self._embeddings_dir)
+        self._vector_store = vector_store or ChromaVectorStore(
+            persist_directory=self._embeddings_dir
+        )
         self._state_path = self._embeddings_dir / "ingestion_state.json"
 
     def ingest(self, documents_path: Path | None = None) -> IngestionReport:
@@ -168,12 +169,13 @@ class IngestionPipeline:
     def _parse_docx(self, path: Path) -> list[SourceDocument]:
         namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
         with ZipFile(path) as archive:
+            info = archive.getinfo("word/document.xml")
+            if info.file_size > _MAX_DOCX_XML_SIZE_BYTES:
+                raise ValueError(
+                    f"DOCX document.xml exceeds limit: {info.file_size} bytes > "
+                    f"{_MAX_DOCX_XML_SIZE_BYTES} bytes: {path}"
+                )
             document_xml = archive.read("word/document.xml")
-        if len(document_xml) > _MAX_DOCX_XML_SIZE_BYTES:
-            raise ValueError(
-                f"DOCX document.xml exceeds limit: {len(document_xml)} bytes > "
-                f"{_MAX_DOCX_XML_SIZE_BYTES} bytes: {path}"
-            )
 
         root = ElementTree.fromstring(document_xml)
         paragraphs: list[str] = []

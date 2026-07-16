@@ -16,6 +16,7 @@ curl http://localhost:8000/health
 ```
 
 The API container runs as an unprivileged user. Compose persists `knowledge/`, `output/`, and `logs/`. Back up these paths according to retention requirements. The frontend reverse-proxies `/api` to the API service.
+Compose sets the API `ROOT_PATH` to `/api` so generated download URLs remain valid through that proxy.
 
 ## Development profile
 

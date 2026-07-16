@@ -1,7 +1,7 @@
 """FastAPI application entry point."""
 
-from contextlib import asynccontextmanager
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,6 @@ from api.routes import router
 from core.version import VERSION
 from observability import configure_logging
 from observability.metrics import HEALTH
-
 
 configure_logging()
 
@@ -31,6 +30,7 @@ app = FastAPI(
     title="TechMindd-AI API",
     description="Workflow-driven AI content package generation service.",
     version=VERSION,
+    root_path=os.getenv("ROOT_PATH", "").rstrip("/"),
     lifespan=lifespan,
 )
 app.include_router(router)

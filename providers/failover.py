@@ -16,7 +16,6 @@ from observability.metrics import (
     PROVIDER_TOKENS,
 )
 
-
 LOGGER = logging.getLogger("techmindd.providers.failover")
 
 _TRANSIENT_MARKERS = (
@@ -135,6 +134,9 @@ class ProviderManager:
                     float(getattr(provider, "timeout_seconds", self._request_timeout_seconds)),
                     self._request_timeout_seconds,
                 )
+                # ProviderManager owns retries/failover. Adapters retain their
+                # legacy retry behavior only when used directly.
+                provider.max_retries = 0
                 result, usage = self._invoke_provider(provider_name, provider, request)
 
                 record = self._build_record(
@@ -222,9 +224,7 @@ class ProviderManager:
             (provider_name.lower(), model.lower()),
             (0.0, 0.0),
         )
-        estimated_cost = (
-            input_tokens * input_rate + output_tokens * output_rate
-        ) / 1_000_000
+        estimated_cost = (input_tokens * input_rate + output_tokens * output_rate) / 1_000_000
         return GenerationRecord(
             provider_used=provider_name,
             provider_fallback=provider_name if retries else None,

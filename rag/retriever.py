@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rag.embedder import SentenceTransformerEmbedder
-from rag.vector_store import ChunkMetadata, ChromaVectorStore
+from rag.vector_store import ChromaVectorStore, ChunkMetadata
 
 
 @dataclass(frozen=True)

@@ -55,6 +55,7 @@ Copy `.env.example` and configure:
 - Provider retry, timeout, token, and cost budgets are also available through CLI/configuration.
 
 Clients authenticate with `X-API-Key`. Every response returns `X-Request-ID` and `X-Correlation-ID`; callers may supply either header to propagate distributed tracing context.
+The dashboard stores its TechMindd API key only for the current browser session; provider credentials remain server-side.
 
 ## Operations
 
@@ -81,7 +82,7 @@ Prometheus metrics cover HTTP traffic, health, active and completed generations,
 ruff check .
 pytest -q
 cd frontend && npm run build
-docker build --target api-runtime -t techmindd-ai:1.0.0 .
+docker build --target api-runtime -t techmindd-ai:1.0.1 .
 ```
 
 GitHub Actions repeats lint, unit and integration tests, frontend compilation, dependency/static security scans, and the production image build. Releases follow Semantic Versioning; update `VERSION` and `CHANGELOG.md` together.

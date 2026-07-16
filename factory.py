@@ -7,11 +7,14 @@ import hashlib
 import json
 import logging
 import re
+import shutil
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict
+from uuid import uuid4
 
 import config
 from agents.registry import AgentRegistry
@@ -24,14 +27,29 @@ from observability import configure_logging
 from plugins import PluginManager
 from providers.provider_factory import ProviderFactory
 from quality import ArtifactQuality, QualityError, QualityManager
-from reflection import ReflectionDecision, ReflectionManager
 from rag.ingestion import IngestionPipeline
 from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
+from reflection import ReflectionDecision, ReflectionManager
 from validation import ValidationError, ValidationManager
 from workflows import Workflow, WorkflowEngine
 
-
 LOGGER = logging.getLogger("techmindd.factory")
+
+
+def _publish_package(staging_dir: Path, package_dir: Path) -> None:
+    """Atomically replace a package while preserving the previous version on failure."""
+    backup_dir = package_dir.with_name(f".{package_dir.name}.backup-{uuid4().hex}")
+    had_previous = package_dir.exists()
+    if had_previous:
+        package_dir.replace(backup_dir)
+    try:
+        staging_dir.replace(package_dir)
+    except Exception:
+        if had_previous and backup_dir.exists():
+            backup_dir.replace(package_dir)
+        raise
+    if backup_dir.exists():
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 @dataclass
@@ -51,10 +69,7 @@ def build_factory(provider_priority: list[str] | None = None) -> PipelineFactory
     template_engine = TemplateEngine()
     writer = Writer()
     package_writer = PackageWriter(template_engine=template_engine, writer=writer)
-    processors = {
-        plugin.name(): plugin.processor()
-        for plugin in PluginManager().discover().all()
-    }
+    processors = {plugin.name(): plugin.processor() for plugin in PluginManager().discover().all()}
 
     return PipelineFactory(
         provider=provider,
@@ -141,7 +156,9 @@ def run_pipeline(
     plugin_by_name = {plugin.name(): plugin for plugin in plugins}
     available_plugin_names = [plugin.name() for plugin in plugins] or list(factory.processors)
     active_workflow = workflow or Workflow.implicit(available_plugin_names, output_base_path)
-    missing_plugins = [name for name in active_workflow.plugins if name not in available_plugin_names]
+    missing_plugins = [
+        name for name in active_workflow.plugins if name not in available_plugin_names
+    ]
     if missing_plugins:
         raise ValueError(f"Workflow references unavailable plugins: {', '.join(missing_plugins)}")
     plugin_names = list(active_workflow.plugins)
@@ -222,10 +239,7 @@ def run_pipeline(
 
     if active_workflow.parallel:
         with ThreadPoolExecutor(max_workers=max(1, len(plugin_names))) as executor:
-            futures = {
-                executor.submit(_generate_agent, name, topic): name
-                for name in plugin_names
-            }
+            futures = {executor.submit(_generate_agent, name, topic): name for name in plugin_names}
             for future in as_completed(futures):
                 _execute_and_collect(futures[future], future.result)
     else:
@@ -300,7 +314,8 @@ def run_pipeline(
                 "path": output_name,
                 "content": "",
                 "template": True,
-                "context": processed_context | {
+                "context": processed_context
+                | {
                     "processor": name,
                     "template": template_name,
                 },
@@ -309,56 +324,71 @@ def run_pipeline(
 
     plan = factory.parser.parse(bundle)
     report_progress(80, "rendering")
-    package_dir = Path(output_base_path).expanduser().resolve() / plan.package_name
-    package_dir.mkdir(parents=True, exist_ok=True)
-    written = factory.package_writer.write_package(plan.files, base_path=package_dir)
-    quality_report = (
-        quality_manager.write_report(package_dir, quality_results)[1]
-        if active_workflow.quality
-        else {"overall_score": None}
-    )
-    if active_workflow.reflection:
-        reflection_manager.write_report(
-            package_dir,
-            reflection_decisions,
-            quality_results,
-            regenerated_artifacts,
+    output_root = Path(output_base_path).expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    package_dir = output_root / plan.package_name
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{plan.package_name}-", dir=output_root))
+    try:
+        staged_written = factory.package_writer.write_package(plan.files, base_path=staging_dir)
+        if active_workflow.reflection:
+            reflection_manager.write_report(
+                staging_dir,
+                reflection_decisions,
+                quality_results,
+                regenerated_artifacts,
+            )
+        quality_report = (
+            quality_manager.write_report(staging_dir, quality_results)[1]
+            if active_workflow.quality
+            else {"overall_score": None}
         )
 
-    report_progress(90, "packaging")
+        report_progress(90, "packaging")
 
-    provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
-    model_name = str(getattr(provider, "model", "unknown"))
-    provider_metrics = provider.summary() if hasattr(provider, "summary") else {}
-    usage = provider_metrics or getattr(provider, "last_usage", {}) or {}
-    assets = AssetManager()
-    assets.write_metadata(
-        package_dir,
-        topic,
-        provider_name,
-        model_name,
-        execution_time=time.perf_counter() - started_at,
-        prompt_tokens=int(usage.get("input_tokens", 0)),
-        completion_tokens=int(usage.get("output_tokens", 0)),
-        estimated_cost=float(usage.get("estimated_cost", 0.0)),
-        provider_used=usage.get("provider_used", [provider_name]),
-        provider_fallback=usage.get("provider_fallback", []),
-        retries=int(usage.get("retries", 0)),
-        overall_quality_score=(
-            float(quality_report["overall_score"])
-            if quality_report["overall_score"] is not None
-            else None
-        ),
-        reflection_performed=active_workflow.reflection,
-        regenerated_artifacts=regenerated_artifacts,
-        final_quality_score=(
-            float(quality_report["overall_score"])
-            if quality_report["overall_score"] is not None
-            else None
-        ),
-    )
-    assets.write_manifest(package_dir, topic, provider_name, model_name)
-    assets.create_zip(package_dir)
+        provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
+        model_name = str(getattr(provider, "model", "unknown"))
+        provider_metrics = provider.summary() if hasattr(provider, "summary") else {}
+        usage = provider_metrics or getattr(provider, "last_usage", {}) or {}
+        assets = AssetManager()
+        assets.write_metadata(
+            staging_dir,
+            topic,
+            provider_name,
+            model_name,
+            execution_time=time.perf_counter() - started_at,
+            prompt_tokens=int(usage.get("input_tokens", 0)),
+            completion_tokens=int(usage.get("output_tokens", 0)),
+            estimated_cost=float(usage.get("estimated_cost", 0.0)),
+            provider_used=usage.get("provider_used", [provider_name]),
+            provider_fallback=usage.get("provider_fallback", []),
+            retries=int(usage.get("retries", 0)),
+            overall_quality_score=(
+                float(quality_report["overall_score"])
+                if quality_report["overall_score"] is not None
+                else None
+            ),
+            reflection_performed=active_workflow.reflection,
+            regenerated_artifacts=regenerated_artifacts,
+            final_quality_score=(
+                float(quality_report["overall_score"])
+                if quality_report["overall_score"] is not None
+                else None
+            ),
+        )
+        assets.write_manifest(
+            staging_dir,
+            topic,
+            provider_name,
+            model_name,
+            package_name=plan.package_name,
+        )
+        assets.create_zip(staging_dir)
+        _publish_package(staging_dir, package_dir)
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+
+    written = [package_dir / path.relative_to(staging_dir) for path in staged_written]
     LOGGER.info("Output package written successfully")
 
     return {

@@ -15,7 +15,6 @@ from reflection.seo_reflector import SEOReflector
 from reflection.social_reflector import SocialReflector
 from reflection.thumbnail_reflector import ThumbnailReflector
 
-
 LOGGER = logging.getLogger("techmindd.reflection")
 
 
@@ -71,6 +70,13 @@ class ReflectionManager:
             quality_score,
             validation_results,
         )
+        if not isinstance(result, dict) or result.get("decision") not in {
+            "accepted",
+            "improved",
+        }:
+            raise ValueError(f"Reflector for {artifact} returned an invalid decision")
+        if not isinstance(result.get("feedback"), str):
+            raise ValueError(f"Reflector for {artifact} returned invalid feedback")
         decision = ReflectionDecision(
             artifact=artifact,
             decision=result["decision"],

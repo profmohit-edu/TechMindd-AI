@@ -11,7 +11,6 @@ from validation.seo_validator import SEOValidator
 from validation.social_validator import SocialValidator
 from validation.thumbnail_validator import ThumbnailValidator
 
-
 LOGGER = logging.getLogger("techmindd.validation")
 
 
@@ -48,6 +47,8 @@ class ValidationManager:
             raise ValidationError(artifact, errors)
 
         errors = validator.validate(payload)
+        if not isinstance(errors, list) or any(not isinstance(error, str) for error in errors):
+            raise TypeError(f"Validator for {artifact} must return a list of errors")
         if errors:
             LOGGER.error("Validation failed for %s: %s", artifact, "; ".join(errors))
             raise ValidationError(artifact, errors)

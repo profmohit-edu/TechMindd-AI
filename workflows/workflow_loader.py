@@ -9,7 +9,6 @@ import yaml
 
 from workflows.workflow import Workflow
 
-
 _WORKFLOW_NAME = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 

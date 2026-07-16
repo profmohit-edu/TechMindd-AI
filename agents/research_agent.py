@@ -5,13 +5,11 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Sequence
+from typing import Any, Dict
 
 import config
 from agents.base_agent import BaseAgent
-from providers.openai_provider import OpenAIProvider
 from rag.retriever import RetrievedChunk, Retriever
-
 
 LOGGER = logging.getLogger("techmindd.agents.research")
 
@@ -21,7 +19,7 @@ class ResearchAgent(BaseAgent):
 
     def __init__(
         self,
-        provider: OpenAIProvider,
+        provider: Any,
         retriever: Retriever | None = None,
     ) -> None:
         super().__init__(provider)

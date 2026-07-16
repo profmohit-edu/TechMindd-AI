@@ -5,7 +5,6 @@ from __future__ import annotations
 from chromadb.telemetry.product import ProductTelemetryClient, ProductTelemetryEvent
 from overrides import override
 
-
 TELEMETRY_IMPL = "rag.chroma_telemetry.NoOpProductTelemetry"
 
 

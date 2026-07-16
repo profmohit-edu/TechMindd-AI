@@ -15,7 +15,9 @@ class SocialScorer:
         engagement = 70.0
         if any(mark in caption for mark in ("?", "!")):
             engagement += 20.0
-        if any(term in caption.lower() for term in ("you", "learn", "discover", "share", "comment")):
+        if any(
+            term in caption.lower() for term in ("you", "learn", "discover", "share", "comment")
+        ):
             engagement += 20.0
 
         hashtag_quality = 40.0

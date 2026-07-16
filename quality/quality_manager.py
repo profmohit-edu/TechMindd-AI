@@ -14,7 +14,6 @@ from quality.seo_scorer import SEOScorer
 from quality.social_scorer import SocialScorer
 from quality.thumbnail_scorer import ThumbnailScorer
 
-
 LOGGER = logging.getLogger("techmindd.quality")
 
 
@@ -38,8 +37,7 @@ class QualityError(RuntimeError):
         self.score = result.score
         self.threshold = threshold
         super().__init__(
-            f"Quality score for {result.artifact} is {result.score:.2f}; "
-            f"minimum is {threshold:.2f}"
+            f"Quality score for {result.artifact} is {result.score:.2f}; minimum is {threshold:.2f}"
         )
 
 
@@ -63,6 +61,13 @@ class QualityManager:
         if scorer is None:
             raise KeyError(f"No quality scorer registered for {artifact}")
         criteria = scorer.score(payload)
+        if not isinstance(criteria, dict) or not criteria:
+            raise ValueError(f"Quality scorer for {artifact} returned no criteria")
+        if any(
+            not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 100
+            for value in criteria.values()
+        ):
+            raise ValueError(f"Quality scorer for {artifact} returned an invalid score")
         score = round(sum(criteria.values()) / len(criteria), 2)
         recommendations = tuple(
             f"Improve {artifact} {criterion.replace('_', ' ')}"
