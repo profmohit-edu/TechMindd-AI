@@ -11,7 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import config
 from agents.registry import AgentRegistry
@@ -104,8 +104,14 @@ def run_pipeline(
     output_base_path: str = "output",
     knowledge_path: str | None = None,
     workflow: Workflow | None = None,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> Dict[str, Any]:
+    def report_progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+
     started_at = time.perf_counter()
+    report_progress(5, "initializing")
     if knowledge_path:
         _ensure_knowledge_index(Path(knowledge_path))
 
@@ -149,6 +155,7 @@ def run_pipeline(
     )
 
     LOGGER.info("Running DirectorAgent")
+    report_progress(15, "director")
     director_plan = registry.get("director").generate(topic)
     LOGGER.info("Director plan generated")
 
@@ -180,6 +187,7 @@ def run_pipeline(
         return name, payload, quality
 
     LOGGER.info("Starting generation for topic: %s", topic)
+    report_progress(25, "generating_artifacts")
 
     agent_payloads: Dict[str, Any] = {}
     quality_results: Dict[str, ArtifactQuality] = {}
@@ -223,8 +231,12 @@ def run_pipeline(
         for name in plugin_names:
             _execute_and_collect(name, lambda name=name: _generate_agent(name, topic))
 
+    report_progress(60, "artifacts_generated")
+
     reflection_decisions: Dict[str, ReflectionDecision] = {}
     regenerated_artifacts: list[str] = []
+    if active_workflow.reflection:
+        report_progress(65, "reflection")
     for name in plugin_names if active_workflow.reflection else []:
         decision = reflection_manager.reflect(
             name,
@@ -295,6 +307,7 @@ def run_pipeline(
         )
 
     plan = factory.parser.parse(bundle)
+    report_progress(80, "rendering")
     package_dir = Path(output_base_path).expanduser().resolve() / plan.package_name
     package_dir.mkdir(parents=True, exist_ok=True)
     written = factory.package_writer.write_package(plan.files, base_path=package_dir)
@@ -310,6 +323,8 @@ def run_pipeline(
             quality_results,
             regenerated_artifacts,
         )
+
+    report_progress(90, "packaging")
 
     provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
     model_name = str(getattr(provider, "model", "unknown"))
