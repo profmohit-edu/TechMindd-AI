@@ -14,4 +14,4 @@ class NoOpProductTelemetry(ProductTelemetryClient):
 
     @override
     def capture(self, event: ProductTelemetryEvent) -> None:
-        return None
+        pass

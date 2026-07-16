@@ -12,7 +12,10 @@ from sentence_transformers import SentenceTransformer
 
 
 LOGGER = logging.getLogger("techmindd.rag.embedder")
+# Sample three 4-byte slices from the SHA-256 digest to spread each token across
+# multiple dimensions while keeping the fallback embedder fast and deterministic.
 _HASH_SAMPLE_BYTES = 12
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
 
 class SentenceTransformerEmbedder:
@@ -33,7 +36,7 @@ class SentenceTransformerEmbedder:
         try:
             self._model = SentenceTransformer(model_name, local_files_only=True)
             LOGGER.info("Loaded sentence-transformers model: %s", model_name)
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             LOGGER.warning(
                 "Falling back to local hashing embedder because sentence-transformers model '%s' was unavailable: %s",
                 model_name,
@@ -58,7 +61,7 @@ class SentenceTransformerEmbedder:
 
     def _fallback_embed(self, text: str) -> list[float]:
         vector = [0.0] * self._fallback_dimensions
-        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        tokens = _TOKEN_PATTERN.findall(text.lower())
 
         if not tokens:
             vector[0] = 1.0
