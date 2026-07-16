@@ -157,12 +157,18 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     registry = AgentRegistry(provider)
 
+    # Phase 1: director agent sets the strategic plan
+    LOGGER.info("Running DirectorAgent")
+    director_plan = registry.get("director").generate(topic)
+    LOGGER.info("Director plan generated")
+
+    # Phase 2: specialist agents run concurrently, informed by the director plan
+    LOGGER.info("Launching concurrent specialist agents")
+
     def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
         agent = registry.get(name)
-        payload = agent.generate(topic)
+        payload = agent.generate(topic, director_plan)
         return name, payload
-
-    LOGGER.info("Starting generation for topic: %s", topic)
 
     agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
@@ -186,19 +192,23 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     if failed_agents:
         LOGGER.warning("Some agents failed and will be excluded: %s", ", ".join(failed_agents))
 
-    bundle = {
-        "package_name": re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:48] or "output",
-        "files": [],
-    }
+    # Phase 3: render Markdown via TemplateEngine and write output files
+    slug = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")[:48] or "output"
 
+    files = []
     for name in agent_order:
         payload = agent_payloads.get(name)
         if payload is None:
             continue
-        bundle["files"].append(
+        content = (
+            factory.template_engine.render_document(name, payload)
+            if factory.template_engine is not None
+            else json.dumps(payload, ensure_ascii=False, indent=2)
+        )
+        files.append(
             {
-                "path": f"{name}.json",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
+                "path": f"{name}.md",
+                "content": content,
                 "template": False,
                 "context": {
                     "processor": name,
@@ -207,7 +217,17 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
             }
         )
 
-    return bundle
+    output_path = Path(output_base_path) / slug
+    written = factory.package_writer.write_package(files, output_path)
+
+    LOGGER.info("Output package written successfully")
+
+    return {
+        "package_name": slug,
+        "file_count": len(written),
+        "output_path": str(output_path),
+        "files": [str(p) for p in written],
+    }
 
 
 def main() -> None:
