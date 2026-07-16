@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import inspect
 from typing import Dict, List
 
-import config
+import agents
 from agents.base_agent import BaseAgent
-from agents.director_agent import DirectorAgent
-from agents.research_agent import ResearchAgent
-from agents.script_agent import ScriptAgent
-from agents.seo_agent import SEOAgent
-from agents.thumbnail_agent import ThumbnailAgent
-from agents.social_agent import SocialAgent
-from providers.openai_provider import OpenAIProvider
+from plugins.discovery import classes_defined_in_package, import_package_modules
+from providers.provider import BaseProvider
 from rag.retriever import Retriever
-from rag.vector_store import ChromaVectorStore
+from rag.retriever_factory import RetrieverFactory
 
 
 LOGGER = logging.getLogger("techmindd.agents.registry")
@@ -25,33 +20,28 @@ LOGGER = logging.getLogger("techmindd.agents.registry")
 class AgentRegistry:
     """Centralized registry for initializing and accessing agents."""
 
-    def __init__(self, provider: OpenAIProvider) -> None:
-        retriever = self._build_retriever()
-        self._agents: Dict[str, BaseAgent] = {
-            "director": DirectorAgent(provider),
-            "research": ResearchAgent(provider, retriever=retriever),
-            "script": ScriptAgent(provider),
-            "seo": SEOAgent(provider),
-            "thumbnail": ThumbnailAgent(provider),
-            "social": SocialAgent(provider),
-        }
+    def __init__(self, provider: BaseProvider) -> None:
+        retriever = RetrieverFactory().default_retriever()
+        self._agents: Dict[str, BaseAgent] = {}
+        self._discover_agents(provider, retriever)
 
-    def _build_retriever(self) -> Retriever | None:
-        if not config.settings.rag_enabled:
-            LOGGER.info("RAG disabled by configuration")
-            return None
+    def _discover_agents(self, provider: BaseProvider, retriever: Retriever | None) -> None:
+        import_package_modules(agents, exclude={"base_agent", "registry", "__init__"})
+        for agent_cls in classes_defined_in_package(BaseAgent, "agents."):
+            name = str(getattr(agent_cls, "agent_name", "")).strip().lower()
+            if not name:
+                class_name = agent_cls.__name__.removesuffix("Agent")
+                name = class_name.lower()
+                LOGGER.warning("Agent %s missing explicit agent_name; using derived name '%s'", agent_cls.__name__, name)
 
-        store_dir = Path("knowledge/embeddings")
-        if not store_dir.exists():
-            LOGGER.info("Knowledge embeddings directory not found; RAG disabled for this run")
-            return None
+            kwargs: dict[str, object] = {}
+            signature = inspect.signature(agent_cls.__init__)
+            if "retriever" in signature.parameters:
+                kwargs["retriever"] = retriever
 
-        try:
-            store = ChromaVectorStore(persist_directory=store_dir)
-            return Retriever(vector_store=store)
-        except Exception:
-            LOGGER.exception("Failed to initialize retriever; continuing without RAG")
-            return None
+            self._agents[name] = agent_cls(provider, **kwargs)
+
+        LOGGER.info("Loaded Agents: %s", ", ".join(sorted(self._agents)) or "(none)")
 
     def get(self, name: str) -> BaseAgent:
         """Return a registered agent by name."""

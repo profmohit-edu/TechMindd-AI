@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 from openai import APIConnectionError, APITimeoutError, BadRequestError, OpenAI, RateLimitError
 
 from config import settings
+from providers.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +38,13 @@ class OpenAIProviderRequestError(OpenAIProviderError):
     """Raised when an OpenAI request fails after retries or due to non-retryable errors."""
 
 
-class OpenAIProvider:
+class OpenAIProvider(BaseProvider):
     """Typed OpenAI provider using the latest OpenAI Python SDK.
 
     The provider issues exactly one OpenAI API request per attempt and returns
     structured JSON with token usage metrics.
     """
+    provider_name = "openai"
 
     def __init__(self, *, timeout_seconds: float = _REQUEST_TIMEOUT_SECONDS) -> None:
         """Initialize provider.

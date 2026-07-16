@@ -17,6 +17,7 @@ from google import genai
 from google.genai import types
 
 from config import settings
+from providers.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,9 @@ class GeminiProviderRequestError(GeminiProviderError):
     """Raised when a Gemini request fails after retries or due to non-retryable errors."""
 
 
-class GeminiProvider:
+class GeminiProvider(BaseProvider):
     """Typed Gemini provider using the official google-genai Python SDK."""
+    provider_name = "gemini"
 
     def __init__(self, *, timeout_seconds: float = _REQUEST_TIMEOUT_SECONDS) -> None:
         self.timeout_seconds = timeout_seconds

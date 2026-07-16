@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Any, Dict
 
 from agents.base_agent import BaseAgent
-from providers.openai_provider import OpenAIProvider
+from providers.provider import BaseProvider
 
 
 class SEOAgent(BaseAgent):
     """Generates structured SEO payloads."""
+    agent_name = "seo"
 
-    def __init__(self, provider: OpenAIProvider) -> None:
+    def __init__(self, provider: BaseProvider) -> None:
         super().__init__(provider)
         self._prompt_path = Path("prompts/seo.txt")
 
