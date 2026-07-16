@@ -1,0 +1,13 @@
+name: blog_package
+description: Research-led blog content package
+provider: auto
+plugins:
+  - research
+  - script
+  - seo
+  - social
+validation: true
+quality: true
+reflection: true
+parallel: true
+output: output

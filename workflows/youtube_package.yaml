@@ -1,0 +1,14 @@
+name: youtube_package
+description: Complete YouTube research and publishing package
+provider: auto
+plugins:
+  - research
+  - script
+  - seo
+  - thumbnail
+  - social
+validation: true
+quality: true
+reflection: true
+parallel: true
+output: output

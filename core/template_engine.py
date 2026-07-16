@@ -9,8 +9,13 @@ from typing import Any, Dict
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateNotFound
 
-
 LOGGER = logging.getLogger("techmindd.template_engine")
+
+
+class _PlaceholderContext(dict[str, Any]):
+    def __missing__(self, key: str) -> str:
+        LOGGER.warning("Missing template placeholder: %s", key)
+        return "{" + key + "}"
 
 
 class TemplateEngine:
@@ -20,7 +25,7 @@ class TemplateEngine:
         self.templates_dir = Path(templates_dir)
         self._jinja_env = Environment(
             loader=FileSystemLoader(str(self.templates_dir)),
-            autoescape=False,
+            autoescape=False,  # Markdown output; escaping would corrupt content.  # noqa: S701
             trim_blocks=True,
             lstrip_blocks=True,
             undefined=StrictUndefined,
@@ -34,15 +39,16 @@ class TemplateEngine:
         if not isinstance(context, dict):
             raise TypeError("context must be a dictionary")
 
-        safe_context = {k: ("" if v is None else v) for k, v in context.items()}
+        safe_context = _PlaceholderContext(
+            {k: ("" if v is None else v) for k, v in context.items()}
+        )
 
         if template.endswith(".jinja2"):
             try:
                 jinja_template = self._jinja_env.get_template(template)
                 return jinja_template.render(**safe_context)
-            except TemplateNotFound:
-                LOGGER.warning("Template file not found: %s", template)
-                return ""
+            except TemplateNotFound as exc:
+                raise FileNotFoundError(f"Template file not found: {template}") from exc
 
         formatter = Formatter()
         return formatter.vformat(template, (), safe_context)

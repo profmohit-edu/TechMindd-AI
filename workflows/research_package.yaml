@@ -1,0 +1,10 @@
+name: research_package
+description: Standalone research package
+provider: auto
+plugins:
+  - research
+validation: true
+quality: true
+reflection: true
+parallel: false
+output: output

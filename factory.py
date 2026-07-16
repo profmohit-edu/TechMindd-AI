@@ -7,27 +7,49 @@ import hashlib
 import json
 import logging
 import re
+import shutil
+import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
+from uuid import uuid4
 
 import config
 from agents.registry import AgentRegistry
+from core.asset_manager import AssetManager
 from core.package_writer import PackageWriter
 from core.parser import ResponseParser
 from core.template_engine import TemplateEngine
 from core.writer import Writer
-from processors.research_processor import ResearchProcessor
-from processors.script_processor import ScriptProcessor
-from processors.seo_processor import SEOProcessor
-from processors.social_processor import SocialProcessor
-from processors.thumbnail_processor import ThumbnailProcessor
+from observability import configure_logging
+from plugins import PluginManager
 from providers.provider_factory import ProviderFactory
+from quality import ArtifactQuality, QualityError, QualityManager
 from rag.ingestion import IngestionPipeline
-
+from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
+from reflection import ReflectionDecision, ReflectionManager
+from validation import ValidationError, ValidationManager
+from workflows import Workflow, WorkflowEngine
 
 LOGGER = logging.getLogger("techmindd.factory")
+
+
+def _publish_package(staging_dir: Path, package_dir: Path) -> None:
+    """Atomically replace a package while preserving the previous version on failure."""
+    backup_dir = package_dir.with_name(f".{package_dir.name}.backup-{uuid4().hex}")
+    had_previous = package_dir.exists()
+    if had_previous:
+        package_dir.replace(backup_dir)
+    try:
+        staging_dir.replace(package_dir)
+    except Exception:
+        if had_previous and backup_dir.exists():
+            backup_dir.replace(package_dir)
+        raise
+    if backup_dir.exists():
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 @dataclass
@@ -40,20 +62,14 @@ class PipelineFactory:
     processors: dict
 
 
-def build_factory() -> PipelineFactory:
+def build_factory(provider_priority: list[str] | None = None) -> PipelineFactory:
     provider_factory = ProviderFactory()
-    provider = provider_factory.default_provider()
+    provider = provider_factory.managed_provider(priority=provider_priority)
     parser = ResponseParser()
     template_engine = TemplateEngine()
     writer = Writer()
     package_writer = PackageWriter(template_engine=template_engine, writer=writer)
-    processors = {
-        "research": ResearchProcessor(),
-        "script": ScriptProcessor(),
-        "seo": SEOProcessor(),
-        "thumbnail": ThumbnailProcessor(),
-        "social": SocialProcessor(),
-    }
+    processors = {plugin.name(): plugin.processor() for plugin in PluginManager().discover().all()}
 
     return PipelineFactory(
         provider=provider,
@@ -65,54 +81,9 @@ def build_factory() -> PipelineFactory:
     )
 
 
-def _response_schema() -> Dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["package_name", "files"],
-        "properties": {
-            "package_name": {"type": "string"},
-            "files": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["path", "content", "template", "context"],
-                    "properties": {
-                        "path": {"type": "string"},
-                        "content": {"type": "string"},
-                        "template": {"type": "boolean"},
-                        "context": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["processor", "payload"],
-                            "properties": {
-                                "processor": {
-                                    "type": "string",
-                                    "enum": ["research", "script", "seo", "thumbnail", "social"],
-                                },
-                                "payload": {
-                                    "type": "object"
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-
 def _compute_documents_state(knowledge_path: Path) -> str:
-    if not knowledge_path.exists():
-        return ""
-
     hashes: list[str] = []
-    for path in sorted(knowledge_path.rglob("*")):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in {".pdf", ".txt", ".md", ".markdown"}:
-            continue
+    for path in discover_documents(knowledge_path):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         hashes.append(f"{path.relative_to(knowledge_path)}:{digest}")
     return "\n".join(hashes)
@@ -122,7 +93,8 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
     if not config.settings.rag_enabled:
         return
 
-    embeddings_path = Path("knowledge/embeddings")
+    knowledge_path = set_active_documents_dir(knowledge_path)
+    embeddings_path = resolve_embeddings_dir(knowledge_path)
     state_file = embeddings_path / "documents.sha256"
 
     current_state = _compute_documents_state(knowledge_path)
@@ -134,19 +106,43 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
         return
 
     LOGGER.info("Knowledge base missing or stale; starting ingestion")
-    pipeline = IngestionPipeline()
-    ingested = pipeline.ingest(knowledge_path)
-    LOGGER.info("Ingestion completed for %d files", ingested)
+    pipeline = IngestionPipeline(documents_dir=knowledge_path, embeddings_dir=embeddings_path)
+    report = pipeline.ingest(knowledge_path)
+    LOGGER.info("Ingestion completed: %d files updated", report.ingested_files)
 
     embeddings_path.mkdir(parents=True, exist_ok=True)
     state_file.write_text(current_state, encoding="utf-8")
 
 
-def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | None = None) -> Dict[str, Any]:
+def run_pipeline(
+    *,
+    topic: str,
+    output_base_path: str = "output",
+    knowledge_path: str | None = None,
+    workflow: Workflow | None = None,
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> Dict[str, Any]:
+    def report_progress(progress: int, stage: str) -> None:
+        if progress_callback is not None:
+            progress_callback(progress, stage)
+
+    started_at = time.perf_counter()
+    report_progress(5, "initializing")
     if knowledge_path:
         _ensure_knowledge_index(Path(knowledge_path))
 
-    factory = build_factory()
+    provider_priority = None
+    if workflow is not None and workflow.provider != "auto":
+        configured = list(config.settings.provider_priority)
+        provider_priority = [
+            workflow.provider,
+            *[name for name in configured if name != workflow.provider],
+        ]
+    factory = (
+        build_factory()
+        if provider_priority is None
+        else build_factory(provider_priority=provider_priority)
+    )
 
     provider = factory.provider
 
@@ -156,66 +152,262 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     )
 
     registry = AgentRegistry(provider)
+    plugins = registry.plugins() if hasattr(registry, "plugins") else []
+    plugin_by_name = {plugin.name(): plugin for plugin in plugins}
+    available_plugin_names = [plugin.name() for plugin in plugins] or list(factory.processors)
+    active_workflow = workflow or Workflow.implicit(available_plugin_names, output_base_path)
+    missing_plugins = [
+        name for name in active_workflow.plugins if name not in available_plugin_names
+    ]
+    if missing_plugins:
+        raise ValueError(f"Workflow references unavailable plugins: {', '.join(missing_plugins)}")
+    plugin_names = list(active_workflow.plugins)
+    validation_manager = ValidationManager(
+        {plugin.name(): plugin.validator() for plugin in plugins} or None
+    )
+    quality_manager = QualityManager(
+        scorers={plugin.name(): plugin.scorer() for plugin in plugins} or None
+    )
+    reflection_manager = ReflectionManager(
+        {plugin.name(): plugin.reflector() for plugin in plugins} or None
+    )
 
-    def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
+    LOGGER.info("Running DirectorAgent")
+    report_progress(15, "director")
+    director_plan = registry.get("director").generate(topic)
+    LOGGER.info("Director plan generated")
+
+    def _generate_agent(name: str, topic: str) -> tuple[str, Any, ArtifactQuality]:
         agent = registry.get(name)
-        payload = agent.generate(topic)
-        return name, payload
+        payload = agent.generate(topic, director_plan)
+        if active_workflow.validation:
+            try:
+                validation_manager.validate(name, payload)
+            except ValidationError:
+                LOGGER.warning("Retrying %s agent after validation failure", name)
+                payload = agent.generate(topic, director_plan)
+                validation_manager.validate(name, payload)
+        quality = (
+            quality_manager.score(name, payload)
+            if active_workflow.quality
+            else ArtifactQuality(name, 100.0, {}, ())
+        )
+        if active_workflow.quality:
+            try:
+                quality_manager.require_quality(quality)
+            except QualityError:
+                LOGGER.warning("Retrying %s agent after low quality score", name)
+                payload = agent.generate(topic, director_plan)
+                if active_workflow.validation:
+                    validation_manager.validate(name, payload)
+                quality = quality_manager.score(name, payload)
+                quality_manager.require_quality(quality)
+        return name, payload, quality
 
     LOGGER.info("Starting generation for topic: %s", topic)
+    report_progress(25, "generating_artifacts")
 
-    agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
-    failed_agents = []
+    quality_results: Dict[str, ArtifactQuality] = {}
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {
-            executor.submit(_generate_agent, name, topic): name
-            for name in agent_order
-        }
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                agent_name, payload = future.result()
-                agent_payloads[agent_name] = payload
-                LOGGER.info("Agent %s completed", agent_name)
-            except Exception as exc:  # pragma: no cover
-                failed_agents.append(name)
-                LOGGER.exception("Agent %s failed: %s", name, exc)
+    if active_workflow.parallel:
+        LOGGER.info("Launching concurrent specialist agents")
+    else:
+        LOGGER.info("Launching sequential specialist agents")
 
-    if failed_agents:
-        LOGGER.warning("Some agents failed and will be excluded: %s", ", ".join(failed_agents))
+    def _collect_result(
+        name: str,
+        generated: tuple[str, Any, ArtifactQuality],
+    ) -> None:
+        agent_name, payload, quality = generated
+        agent_payloads[agent_name] = payload
+        quality_results[agent_name] = quality
+        LOGGER.info("Agent %s completed", agent_name)
 
+    def _execute_and_collect(name: str, result_getter: Any) -> None:
+        try:
+            _collect_result(name, result_getter())
+        except ValidationError:
+            LOGGER.exception("Agent %s failed validation after one retry", name)
+            raise
+        except QualityError:
+            LOGGER.exception("Agent %s failed quality scoring after one retry", name)
+            raise
+        except Exception as exc:  # pragma: no cover
+            LOGGER.exception("Agent %s failed: %s", name, exc)
+            raise RuntimeError(f"Required specialist agent failed: {name}") from exc
+
+    if active_workflow.parallel:
+        with ThreadPoolExecutor(max_workers=max(1, len(plugin_names))) as executor:
+            futures = {executor.submit(_generate_agent, name, topic): name for name in plugin_names}
+            for future in as_completed(futures):
+                _execute_and_collect(futures[future], future.result)
+    else:
+        for name in plugin_names:
+            _execute_and_collect(name, lambda name=name: _generate_agent(name, topic))
+
+    report_progress(60, "artifacts_generated")
+
+    reflection_decisions: Dict[str, ReflectionDecision] = {}
+    regenerated_artifacts: list[str] = []
+    if active_workflow.reflection:
+        report_progress(65, "reflection")
+    for name in plugin_names if active_workflow.reflection else []:
+        decision = reflection_manager.reflect(
+            name,
+            agent_payloads[name],
+            director_plan,
+            quality_results[name],
+            {"valid": True, "errors": []},
+        )
+        reflection_decisions[name] = decision
+        if decision.decision != "improved":
+            continue
+
+        reflection_plan = dict(director_plan)
+        focus_key = f"{name}_focus"
+        existing_focus = str(reflection_plan.get(focus_key, "")).strip()
+        reflection_plan[focus_key] = (
+            f"{existing_focus}\nReflection feedback: {decision.feedback}".strip()
+        )
+        candidate = registry.get(name).generate(topic, reflection_plan)
+        try:
+            if active_workflow.validation:
+                validation_manager.validate(name, candidate)
+        except ValidationError:
+            LOGGER.warning("Discarding invalid reflected candidate for %s", name)
+            continue
+        candidate_quality = quality_manager.score(name, candidate)
+        if candidate_quality.score > quality_results[name].score:
+            agent_payloads[name] = candidate
+            quality_results[name] = candidate_quality
+            regenerated_artifacts.append(name)
+            LOGGER.info(
+                "Accepted reflected candidate for %s: %.2f > %.2f",
+                name,
+                candidate_quality.score,
+                decision.before_score,
+            )
+        else:
+            LOGGER.info(
+                "Kept original %s artifact: reflected score %.2f <= %.2f",
+                name,
+                candidate_quality.score,
+                decision.before_score,
+            )
+
+    raw_package_name = str(director_plan.get("package_name", "")) or topic
     bundle = {
-        "package_name": re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:48] or "output",
+        "package_name": re.sub(r"[^a-z0-9]+", "-", raw_package_name.lower()).strip("-")[:64]
+        or "output",
         "files": [],
     }
 
-    for name in agent_order:
-        payload = agent_payloads.get(name)
-        if payload is None:
-            continue
+    for name in plugin_names:
+        plugin = plugin_by_name.get(name)
+        processor = plugin.processor() if plugin is not None else factory.processors[name]
+        output_name = plugin.output_name() if plugin is not None else f"{name}.md"
+        template_name = plugin.template() if plugin is not None else f"{name}.jinja2"
+        processed_context = processor.process(agent_payloads[name])
         bundle["files"].append(
             {
-                "path": f"{name}.json",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
-                "template": False,
-                "context": {
+                "path": output_name,
+                "content": "",
+                "template": True,
+                "context": processed_context
+                | {
                     "processor": name,
-                    "payload": payload,
+                    "template": template_name,
                 },
             }
         )
 
-    return bundle
+    plan = factory.parser.parse(bundle)
+    report_progress(80, "rendering")
+    output_root = Path(output_base_path).expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    package_dir = output_root / plan.package_name
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{plan.package_name}-", dir=output_root))
+    try:
+        staged_written = factory.package_writer.write_package(plan.files, base_path=staging_dir)
+        if active_workflow.reflection:
+            reflection_manager.write_report(
+                staging_dir,
+                reflection_decisions,
+                quality_results,
+                regenerated_artifacts,
+            )
+        quality_report = (
+            quality_manager.write_report(staging_dir, quality_results)[1]
+            if active_workflow.quality
+            else {"overall_score": None}
+        )
+
+        report_progress(90, "packaging")
+
+        provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
+        model_name = str(getattr(provider, "model", "unknown"))
+        provider_metrics = provider.summary() if hasattr(provider, "summary") else {}
+        usage = provider_metrics or getattr(provider, "last_usage", {}) or {}
+        assets = AssetManager()
+        assets.write_metadata(
+            staging_dir,
+            topic,
+            provider_name,
+            model_name,
+            execution_time=time.perf_counter() - started_at,
+            prompt_tokens=int(usage.get("input_tokens", 0)),
+            completion_tokens=int(usage.get("output_tokens", 0)),
+            estimated_cost=float(usage.get("estimated_cost", 0.0)),
+            provider_used=usage.get("provider_used", [provider_name]),
+            provider_fallback=usage.get("provider_fallback", []),
+            retries=int(usage.get("retries", 0)),
+            overall_quality_score=(
+                float(quality_report["overall_score"])
+                if quality_report["overall_score"] is not None
+                else None
+            ),
+            reflection_performed=active_workflow.reflection,
+            regenerated_artifacts=regenerated_artifacts,
+            final_quality_score=(
+                float(quality_report["overall_score"])
+                if quality_report["overall_score"] is not None
+                else None
+            ),
+        )
+        assets.write_manifest(
+            staging_dir,
+            topic,
+            provider_name,
+            model_name,
+            package_name=plan.package_name,
+        )
+        assets.create_zip(staging_dir)
+        _publish_package(staging_dir, package_dir)
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+
+    written = [package_dir / path.relative_to(staging_dir) for path in staged_written]
+    LOGGER.info("Output package written successfully")
+
+    return {
+        "package_name": plan.package_name,
+        "output_path": str(package_dir),
+        "files_written": [str(path) for path in written],
+        "file_count": len(written),
+    }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the TechMindd content pipeline")
     parser.add_argument("--topic", required=True, help="Content topic")
+    parser.add_argument("--workflow", default=None, help="Workflow YAML name")
     parser.add_argument(
         "--output",
-        default="output",
+        "--output-dir",
+        dest="output",
+        default=None,
         help="Base output directory",
     )
     parser.add_argument(
@@ -225,9 +417,22 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+    configure_logging()
 
-    result = run_pipeline(topic=args.topic, output_base_path=args.output, knowledge_path=args.knowledge)
+    if args.workflow:
+        result = WorkflowEngine().execute(
+            args.workflow,
+            topic=args.topic,
+            runner=run_pipeline,
+            output_override=args.output,
+            knowledge_path=args.knowledge,
+        )
+    else:
+        result = run_pipeline(
+            topic=args.topic,
+            output_base_path=args.output or "output",
+            knowledge_path=args.knowledge,
+        )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

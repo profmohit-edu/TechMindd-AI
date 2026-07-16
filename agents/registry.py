@@ -3,21 +3,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import config
 from agents.base_agent import BaseAgent
 from agents.director_agent import DirectorAgent
-from agents.research_agent import ResearchAgent
-from agents.script_agent import ScriptAgent
-from agents.seo_agent import SEOAgent
-from agents.thumbnail_agent import ThumbnailAgent
-from agents.social_agent import SocialAgent
-from providers.openai_provider import OpenAIProvider
+from plugins import BasePlugin, PluginManager
+from rag.paths import resolve_embeddings_dir
 from rag.retriever import Retriever
 from rag.vector_store import ChromaVectorStore
-
 
 LOGGER = logging.getLogger("techmindd.agents.registry")
 
@@ -25,23 +19,19 @@ LOGGER = logging.getLogger("techmindd.agents.registry")
 class AgentRegistry:
     """Centralized registry for initializing and accessing agents."""
 
-    def __init__(self, provider: OpenAIProvider) -> None:
-        retriever = self._build_retriever()
-        self._agents: Dict[str, BaseAgent] = {
-            "director": DirectorAgent(provider),
-            "research": ResearchAgent(provider, retriever=retriever),
-            "script": ScriptAgent(provider),
-            "seo": SEOAgent(provider),
-            "thumbnail": ThumbnailAgent(provider),
-            "social": SocialAgent(provider),
-        }
+    def __init__(self, provider: Any) -> None:
+        self._plugin_registry = PluginManager().discover()
+        retriever = self._build_retriever() if "research" in self._plugin_registry.names() else None
+        self._agents: Dict[str, BaseAgent] = {"director": DirectorAgent(provider)}
+        for plugin in self._plugin_registry.all():
+            self._agents[plugin.name()] = plugin.create_agent(provider, retriever=retriever)
 
     def _build_retriever(self) -> Retriever | None:
         if not config.settings.rag_enabled:
             LOGGER.info("RAG disabled by configuration")
             return None
 
-        store_dir = Path("knowledge/embeddings")
+        store_dir = resolve_embeddings_dir()
         if not store_dir.exists():
             LOGGER.info("Knowledge embeddings directory not found; RAG disabled for this run")
             return None
@@ -66,3 +56,7 @@ class AgentRegistry:
     def names(self) -> List[str]:
         """Return all registered agent names."""
         return list(self._agents.keys())
+
+    def plugins(self) -> list[BasePlugin]:
+        """Return dynamically discovered content plugins in execution order."""
+        return self._plugin_registry.all()

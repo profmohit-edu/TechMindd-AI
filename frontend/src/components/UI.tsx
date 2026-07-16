@@ -1,0 +1,6 @@
+import { LoaderCircle, TriangleAlert } from 'lucide-react'
+export function PageHeader({title,description,action}:{title:string;description:string;action?:React.ReactNode}){return <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1><p className="mt-1 text-sm text-slate-500">{description}</p></div>{action}</div>}
+export function Loading(){return <div className="panel grid min-h-40 place-items-center"><LoaderCircle className="animate-spin text-cyan-500"/></div>}
+export function ErrorState({message}:{message:string}){return <div className="panel flex items-center gap-3 border-rose-500/30 p-5 text-rose-500"><TriangleAlert/>{message}</div>}
+export function Badge({status}:{status:string}){const color=status==='completed'||status==='available'?'bg-emerald-500/15 text-emerald-500':status==='failed'||status==='not_configured'?'bg-rose-500/15 text-rose-500':'bg-amber-500/15 text-amber-500';return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${color}`}>{status.replace('_',' ')}</span>}
+export function Progress({value}:{value:number}){return <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div className="h-full rounded-full bg-cyan-500 transition-all" style={{width:`${value}%`}}/></div>}

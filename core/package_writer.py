@@ -21,8 +21,8 @@ class PackageWriter:
         files: Iterable[Dict[str, Any]],
         base_path: str | Path = ".",
     ) -> List[Path]:
-        written: List[Path] = []
         base = Path(base_path)
+        rendered: list[tuple[str, str]] = []
 
         for file_spec in files:
             path = str(file_spec.get("path", "")).strip()
@@ -35,18 +35,11 @@ class PackageWriter:
 
             if is_template:
                 processor = str(context.get("processor", "")).strip()
-                template_map = {
-                    "research": "research.jinja2",
-                    "script": "script.jinja2",
-                    "seo": "seo.jinja2",
-                    "thumbnail": "thumbnail.jinja2",
-                    "social": "social.jinja2",
-                }
-                template_name = template_map.get(processor)
+                configured_template = str(context.get("template", "")).strip()
+                template_name = configured_template or (f"{processor}.jinja2" if processor else "")
                 if template_name:
                     content = self.template_engine.render(template_name, context)
 
-            full_relative = str((base / path).as_posix())
-            written.append(self.writer.write(full_relative, content))
+            rendered.append((str((base / path).as_posix()), content))
 
-        return written
+        return [self.writer.write(path, content) for path, content in rendered]

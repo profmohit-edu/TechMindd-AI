@@ -1,0 +1,12 @@
+name: linkedin_package
+description: Focused LinkedIn content package
+provider: auto
+plugins:
+  - research
+  - seo
+  - social
+validation: true
+quality: true
+reflection: true
+parallel: true
+output: output

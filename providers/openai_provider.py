@@ -57,6 +57,7 @@ class OpenAIProvider:
         self._ensure_config()
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = str(settings.openai_model)
+        self.max_retries = _MAX_RETRIES
         self.last_usage: Dict[str, int] = {}
 
     @staticmethod
@@ -68,9 +69,13 @@ class OpenAIProvider:
                 `settings.openai_model` is missing.
         """
         if not settings.openai_api_key or not str(settings.openai_api_key).strip():
-            raise OpenAIProviderConfigurationError("settings.openai_api_key is required but not configured.")
+            raise OpenAIProviderConfigurationError(
+                "settings.openai_api_key is required but not configured."
+            )
         if not settings.openai_model or not str(settings.openai_model).strip():
-            raise OpenAIProviderConfigurationError("settings.openai_model is required but not configured.")
+            raise OpenAIProviderConfigurationError(
+                "settings.openai_model is required but not configured."
+            )
 
     @staticmethod
     def _extract_usage(response: Any) -> Dict[str, int]:
@@ -152,7 +157,7 @@ class OpenAIProvider:
             float: Sleep duration in seconds.
         """
         base = min(_INITIAL_BACKOFF_SECONDS * (2**attempt), _MAX_BACKOFF_SECONDS)
-        jitter = random.uniform(0.0, 0.25 * base)
+        jitter = random.uniform(0.0, 0.25 * base)  # noqa: S311 - retry jitter
         return base + jitter
 
     def generate_structured_json(
@@ -193,11 +198,15 @@ class OpenAIProvider:
         """
         last_error: Optional[Exception] = None
 
-        for attempt in range(_MAX_RETRIES + 1):
+        for attempt in range(self.max_retries + 1):
             try:
                 logger.info(
                     "Sending OpenAI request",
-                    extra={"model": self.model, "attempt": attempt + 1, "max_attempts": _MAX_RETRIES + 1},
+                    extra={
+                        "model": self.model,
+                        "attempt": attempt + 1,
+                        "max_attempts": self.max_retries + 1,
+                    },
                 )
 
                 request_kwargs: Dict[str, Any] = {
@@ -225,12 +234,12 @@ class OpenAIProvider:
                 logger.info("OpenAI request succeeded", extra={"model": self.model, "usage": usage})
 
                 self.last_usage = usage
-                logger.info("Model JSON response:\n%s", json.dumps(data, indent=2))
+                logger.debug("OpenAI returned structured JSON with %d fields", len(data))
                 return data
 
             except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
                 last_error = exc
-                if attempt >= _MAX_RETRIES:
+                if attempt >= self.max_retries:
                     logger.error(
                         "OpenAI transient failure after retries",
                         extra={"error": str(exc), "attempts": attempt + 1},
@@ -240,7 +249,11 @@ class OpenAIProvider:
                 sleep_seconds = self._compute_backoff(attempt)
                 logger.warning(
                     "Transient OpenAI error; retrying with backoff",
-                    extra={"error": str(exc), "sleep_seconds": sleep_seconds, "attempt": attempt + 1},
+                    extra={
+                        "error": str(exc),
+                        "sleep_seconds": sleep_seconds,
+                        "attempt": attempt + 1,
+                    },
                 )
                 time.sleep(sleep_seconds)
 

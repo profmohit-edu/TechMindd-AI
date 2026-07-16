@@ -8,6 +8,9 @@ from typing import Any, Sequence
 
 import chromadb
 from chromadb.api.models.Collection import Collection
+from chromadb.config import Settings
+
+from rag.chroma_telemetry import TELEMETRY_IMPL
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,16 @@ class ChromaVectorStore:
     ) -> None:
         self._persist_directory = persist_directory
         self._persist_directory.mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=str(self._persist_directory))
+        settings = Settings(
+            anonymized_telemetry=False,
+            is_persistent=True,
+            persist_directory=str(self._persist_directory),
+            chroma_product_telemetry_impl=TELEMETRY_IMPL,
+            chroma_telemetry_impl=TELEMETRY_IMPL,
+        )
+        self._client = chromadb.PersistentClient(
+            path=str(self._persist_directory), settings=settings
+        )
         self._collection: Collection = self._client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -80,7 +92,7 @@ class ChromaVectorStore:
         distances = response.get("distances", [[]])[0]
 
         results: list[dict[str, Any]] = []
-        for text, metadata, distance in zip(documents, metadatas, distances):
+        for text, metadata, distance in zip(documents, metadatas, distances, strict=True):
             results.append(
                 {
                     "text": text,
@@ -89,3 +101,7 @@ class ChromaVectorStore:
                 }
             )
         return results
+
+    def count(self) -> int:
+        """Return the number of indexed chunks."""
+        return int(self._collection.count())
