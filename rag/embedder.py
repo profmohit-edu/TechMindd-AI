@@ -71,6 +71,8 @@ class SentenceTransformerEmbedder:
             digest = hashlib.sha256(token.encode("utf-8")).digest()
             for offset in range(0, _HASH_SAMPLE_BYTES, 4):
                 index = int.from_bytes(digest[offset : offset + 4], "big") % self._fallback_dimensions
+                # Flip the sign based on the sampled byte so hashed terms distribute
+                # across the vector space instead of only accumulating positive counts.
                 sign = 1.0 if digest[offset + 3] % 2 == 0 else -1.0
                 vector[index] += sign
 

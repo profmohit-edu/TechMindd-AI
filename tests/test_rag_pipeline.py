@@ -102,5 +102,5 @@ def test_retrieval_returns_relevant_chunks(tmp_path: Path) -> None:
     results = retriever.retrieve("Artificial Intelligence", top_k=2)
 
     assert report.indexed_chunks >= 2
-    assert len(results) >= 1
+    assert len(results) == 2
     assert results[0].metadata.filename == "ai.md"

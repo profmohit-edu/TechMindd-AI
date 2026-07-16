@@ -19,7 +19,7 @@ from rag.vector_store import ChunkMetadata, ChromaVectorStore
 
 
 LOGGER = logging.getLogger("techmindd.rag.ingestion")
-_MAX_DOCX_XML_BYTES = 5_000_000
+_MAX_DOCX_XML_SIZE_BYTES = 5_000_000
 
 
 @dataclass(frozen=True)
@@ -169,8 +169,11 @@ class IngestionPipeline:
         namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
         with ZipFile(path) as archive:
             document_xml = archive.read("word/document.xml")
-        if len(document_xml) > _MAX_DOCX_XML_BYTES:
-            raise ValueError(f"DOCX document.xml exceeds {_MAX_DOCX_XML_BYTES} bytes: {path}")
+        if len(document_xml) > _MAX_DOCX_XML_SIZE_BYTES:
+            raise ValueError(
+                f"DOCX document.xml exceeds limit: {len(document_xml)} bytes > "
+                f"{_MAX_DOCX_XML_SIZE_BYTES} bytes: {path}"
+            )
 
         root = ElementTree.fromstring(document_xml)
         paragraphs: list[str] = []
