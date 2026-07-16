@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class GenerateRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=500)
     workflow: str = Field(default="youtube_package", pattern=r"^[a-zA-Z0-9_-]+$")
+    provider: str | None = Field(default=None, pattern=r"^(openai|gemini|auto)$")
 
 
 class GenerateResponse(BaseModel):
@@ -25,6 +26,15 @@ class JobStatusResponse(BaseModel):
     provider: str
     workflow: str
     error: str | None = None
+    topic: str
+    logs: list[str] = Field(default_factory=list)
+
+
+class KnowledgeResponse(BaseModel):
+    filename: str | None = None
+    status: str
+    documents: int | None = None
+    indexed_chunks: int | None = None
 
 
 class OutputFile(BaseModel):

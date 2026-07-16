@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -31,6 +31,7 @@ class JobRecord:
     current_stage: str = "queued"
     result: dict[str, Any] | None = None
     error: str | None = None
+    logs: list[str] = field(default_factory=lambda: ["Job queued"])
 
 
 class JobService:
@@ -47,13 +48,19 @@ class JobService:
         )
         self._workflows = WorkflowEngine()
 
-    def create(self, topic: str, workflow_name: str) -> JobRecord:
+    def create(
+        self,
+        topic: str,
+        workflow_name: str,
+        provider_override: str | None = None,
+    ) -> JobRecord:
         workflow = self._workflows.load(workflow_name)
+        provider = provider_override or workflow.provider
         record = JobRecord(
             job_id=uuid4().hex,
             topic=topic.strip(),
             workflow=workflow.name,
-            provider=workflow.provider,
+            provider=provider,
         )
         with self._lock:
             self._jobs[record.job_id] = record
@@ -66,6 +73,15 @@ class JobService:
             if record is None:
                 raise KeyError(job_id)
             return JobRecord(**asdict(record))
+
+    def list(self) -> list[JobRecord]:
+        with self._lock:
+            return [JobRecord(**asdict(record)) for record in reversed(self._jobs.values())]
+
+    def retry(self, job_id: str) -> JobRecord:
+        record = self.get(job_id)
+        provider = record.provider if record.provider in {"auto", "openai", "gemini"} else None
+        return self.create(record.topic, record.workflow, provider)
 
     def package_dir(self, job_id: str) -> Path:
         record = self.get(job_id)
@@ -88,14 +104,26 @@ class JobService:
                 setattr(record, key, value)
 
     def _progress(self, job_id: str, progress: int, stage: str) -> None:
-        self._update(job_id, progress=progress, current_stage=stage)
+        with self._lock:
+            record = self._jobs[job_id]
+            record.progress = progress
+            record.current_stage = stage
+            record.logs.append(f"{progress}% · {stage.replace('_', ' ')}")
 
     def _run(self, job_id: str) -> None:
         record = self.get(job_id)
         try:
             workflow = self._workflows.load(record.workflow)
+            if record.provider != "auto":
+                workflow = replace(workflow, provider=record.provider)
             job_output = self.output_root / job_id
-            self._update(job_id, status="running", progress=1, current_stage="starting")
+            self._update(
+                job_id,
+                status="running",
+                progress=1,
+                current_stage="starting",
+                logs=[*record.logs, "1% · starting"],
+            )
             result = run_pipeline(
                 topic=record.topic,
                 output_base_path=str(job_output),
@@ -117,6 +145,7 @@ class JobService:
                 current_stage="completed",
                 provider=provider_label,
                 result=result,
+                logs=[*self.get(job_id).logs, "100% · completed"],
             )
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("Background generation job failed: %s", job_id)
@@ -125,6 +154,7 @@ class JobService:
                 status="failed",
                 current_stage="failed",
                 error=str(exc),
+                logs=[*self.get(job_id).logs, f"Failed · {exc}"],
             )
 
 

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
+from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import JobService, get_job_service, provider_health
 from api.schemas import (
@@ -12,6 +15,7 @@ from api.schemas import (
     HealthResponse,
     JobResultResponse,
     JobStatusResponse,
+    KnowledgeResponse,
     OutputFile,
     PluginResponse,
     ProviderResponse,
@@ -19,6 +23,8 @@ from api.schemas import (
 )
 from plugins import PluginManager
 from workflows import WorkflowEngine
+from rag.ingestion import IngestionPipeline
+from rag.paths import resolve_documents_dir
 
 
 router = APIRouter()
@@ -34,9 +40,26 @@ def generate(
     jobs: JobService = Depends(get_job_service),
 ) -> GenerateResponse:
     try:
-        job = jobs.create(payload.topic, payload.workflow)
+        job = jobs.create(payload.topic, payload.workflow, payload.provider)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return GenerateResponse(job_id=job.job_id, status=job.status)
+
+
+@router.get("/jobs", response_model=list[JobStatusResponse])
+def jobs_list(jobs: JobService = Depends(get_job_service)) -> list[JobStatusResponse]:
+    return [JobStatusResponse(**job.__dict__) for job in jobs.list()]
+
+
+@router.post("/jobs/{job_id}/retry", response_model=GenerateResponse, status_code=202)
+def retry_job(
+    job_id: str,
+    jobs: JobService = Depends(get_job_service),
+) -> GenerateResponse:
+    try:
+        job = jobs.retry(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
     return GenerateResponse(job_id=job.job_id, status=job.status)
 
 
@@ -127,6 +150,31 @@ def plugins() -> list[PluginResponse]:
 @router.get("/providers", response_model=list[ProviderResponse])
 def providers() -> list[ProviderResponse]:
     return [ProviderResponse(**item) for item in provider_health()]
+
+
+@router.post("/knowledge/upload", response_model=KnowledgeResponse)
+async def upload_knowledge(file: UploadFile = File(...)) -> KnowledgeResponse:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".pdf", ".docx", ".txt", ".md", ".markdown"}:
+        raise HTTPException(status_code=415, detail="Unsupported knowledge file type")
+    documents_dir = resolve_documents_dir()
+    documents_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file.filename or f"upload{suffix}").name
+    content = await file.read(20_000_001)
+    if len(content) > 20_000_000:
+        raise HTTPException(status_code=413, detail="Knowledge file exceeds 20 MB")
+    (documents_dir / safe_name).write_bytes(content)
+    return KnowledgeResponse(filename=safe_name, status="uploaded")
+
+
+@router.post("/knowledge/reindex", response_model=KnowledgeResponse)
+async def reindex_knowledge() -> KnowledgeResponse:
+    report = await run_in_threadpool(IngestionPipeline().ingest)
+    return KnowledgeResponse(
+        status="indexed",
+        documents=report.detected_documents,
+        indexed_chunks=report.indexed_chunks,
+    )
 
 
 @router.get("/health", response_model=HealthResponse)
