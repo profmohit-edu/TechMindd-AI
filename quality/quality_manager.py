@@ -46,11 +46,11 @@ class QualityError(RuntimeError):
 class QualityManager:
     """Score specialist artifacts and build package-level QA reports."""
 
-    def __init__(self, threshold: float = 70.0) -> None:
+    def __init__(self, threshold: float = 70.0, scorers: dict[str, Scorer] | None = None) -> None:
         if not 0 <= threshold <= 100:
             raise ValueError("quality threshold must be between 0 and 100")
         self.threshold = threshold
-        self._scorers: dict[str, Scorer] = {
+        self._scorers: dict[str, Scorer] = scorers or {
             "research": ResearchScorer(),
             "script": ScriptScorer(),
             "seo": SEOScorer(),

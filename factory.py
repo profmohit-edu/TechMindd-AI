@@ -20,11 +20,7 @@ from core.package_writer import PackageWriter
 from core.parser import ResponseParser
 from core.template_engine import TemplateEngine
 from core.writer import Writer
-from processors.research_processor import ResearchProcessor
-from processors.script_processor import ScriptProcessor
-from processors.seo_processor import SEOProcessor
-from processors.social_processor import SocialProcessor
-from processors.thumbnail_processor import ThumbnailProcessor
+from plugins import PluginManager
 from providers.provider_factory import ProviderFactory
 from quality import ArtifactQuality, QualityError, QualityManager
 from reflection import ReflectionDecision, ReflectionManager
@@ -54,11 +50,8 @@ def build_factory() -> PipelineFactory:
     writer = Writer()
     package_writer = PackageWriter(template_engine=template_engine, writer=writer)
     processors = {
-        "research": ResearchProcessor(),
-        "script": ScriptProcessor(),
-        "seo": SEOProcessor(),
-        "thumbnail": ThumbnailProcessor(),
-        "social": SocialProcessor(),
+        plugin.name(): plugin.processor()
+        for plugin in PluginManager().discover().all()
     }
 
     return PipelineFactory(
@@ -119,9 +112,18 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     )
 
     registry = AgentRegistry(provider)
-    validation_manager = ValidationManager()
-    quality_manager = QualityManager()
-    reflection_manager = ReflectionManager()
+    plugins = registry.plugins() if hasattr(registry, "plugins") else []
+    plugin_by_name = {plugin.name(): plugin for plugin in plugins}
+    plugin_names = [plugin.name() for plugin in plugins] or list(factory.processors)
+    validation_manager = ValidationManager(
+        {plugin.name(): plugin.validator() for plugin in plugins} or None
+    )
+    quality_manager = QualityManager(
+        scorers={plugin.name(): plugin.scorer() for plugin in plugins} or None
+    )
+    reflection_manager = ReflectionManager(
+        {plugin.name(): plugin.reflector() for plugin in plugins} or None
+    )
 
     LOGGER.info("Running DirectorAgent")
     director_plan = registry.get("director").generate(topic)
@@ -149,15 +151,14 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     LOGGER.info("Starting generation for topic: %s", topic)
 
-    agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
     quality_results: Dict[str, ArtifactQuality] = {}
 
     LOGGER.info("Launching concurrent specialist agents")
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, len(plugin_names))) as executor:
         futures = {
             executor.submit(_generate_agent, name, topic): name
-            for name in agent_order
+            for name in plugin_names
         }
         for future in as_completed(futures):
             name = futures[future]
@@ -178,7 +179,7 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     reflection_decisions: Dict[str, ReflectionDecision] = {}
     regenerated_artifacts: list[str] = []
-    for name in agent_order:
+    for name in plugin_names:
         decision = reflection_manager.reflect(
             name,
             agent_payloads[name],
@@ -228,14 +229,21 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         "files": [],
     }
 
-    for name in agent_order:
-        processed_context = factory.processors[name].process(agent_payloads[name])
+    for name in plugin_names:
+        plugin = plugin_by_name.get(name)
+        processor = plugin.processor() if plugin is not None else factory.processors[name]
+        output_name = plugin.output_name() if plugin is not None else f"{name}.md"
+        template_name = plugin.template() if plugin is not None else f"{name}.jinja2"
+        processed_context = processor.process(agent_payloads[name])
         bundle["files"].append(
             {
-                "path": f"{name}.md",
+                "path": output_name,
                 "content": "",
                 "template": True,
-                "context": processed_context | {"processor": name},
+                "context": processed_context | {
+                    "processor": name,
+                    "template": template_name,
+                },
             }
         )
 

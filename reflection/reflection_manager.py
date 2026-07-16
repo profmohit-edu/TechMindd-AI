@@ -40,8 +40,8 @@ class ReflectionDecision:
 class ReflectionManager:
     """Run artifact reflectors and produce deterministic reflection reports."""
 
-    def __init__(self) -> None:
-        self._reflectors: dict[str, Reflector] = {
+    def __init__(self, reflectors: dict[str, Reflector] | None = None) -> None:
+        self._reflectors: dict[str, Reflector] = reflectors or {
             "research": ResearchReflector(),
             "script": ScriptReflector(),
             "seo": SEOReflector(),

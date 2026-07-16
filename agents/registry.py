@@ -9,11 +9,7 @@ from typing import Dict, List
 import config
 from agents.base_agent import BaseAgent
 from agents.director_agent import DirectorAgent
-from agents.research_agent import ResearchAgent
-from agents.script_agent import ScriptAgent
-from agents.seo_agent import SEOAgent
-from agents.thumbnail_agent import ThumbnailAgent
-from agents.social_agent import SocialAgent
+from plugins import BasePlugin, PluginManager
 from providers.openai_provider import OpenAIProvider
 from rag.paths import resolve_embeddings_dir
 from rag.retriever import Retriever
@@ -28,14 +24,10 @@ class AgentRegistry:
 
     def __init__(self, provider: OpenAIProvider) -> None:
         retriever = self._build_retriever()
-        self._agents: Dict[str, BaseAgent] = {
-            "director": DirectorAgent(provider),
-            "research": ResearchAgent(provider, retriever=retriever),
-            "script": ScriptAgent(provider),
-            "seo": SEOAgent(provider),
-            "thumbnail": ThumbnailAgent(provider),
-            "social": SocialAgent(provider),
-        }
+        self._plugin_registry = PluginManager().discover()
+        self._agents: Dict[str, BaseAgent] = {"director": DirectorAgent(provider)}
+        for plugin in self._plugin_registry.all():
+            self._agents[plugin.name()] = plugin.create_agent(provider, retriever=retriever)
 
     def _build_retriever(self) -> Retriever | None:
         if not config.settings.rag_enabled:
@@ -67,3 +59,7 @@ class AgentRegistry:
     def names(self) -> List[str]:
         """Return all registered agent names."""
         return list(self._agents.keys())
+
+    def plugins(self) -> list[BasePlugin]:
+        """Return dynamically discovered content plugins in execution order."""
+        return self._plugin_registry.all()

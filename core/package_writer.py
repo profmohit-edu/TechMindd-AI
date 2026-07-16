@@ -35,6 +35,7 @@ class PackageWriter:
 
             if is_template:
                 processor = str(context.get("processor", "")).strip()
+                configured_template = str(context.get("template", "")).strip()
                 template_map = {
                     "research": "research.jinja2",
                     "script": "script.jinja2",
@@ -42,7 +43,7 @@ class PackageWriter:
                     "thumbnail": "thumbnail.jinja2",
                     "social": "social.jinja2",
                 }
-                template_name = template_map.get(processor)
+                template_name = configured_template or template_map.get(processor)
                 if template_name:
                     content = self.template_engine.render(template_name, context)
 

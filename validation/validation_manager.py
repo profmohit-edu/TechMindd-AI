@@ -31,8 +31,8 @@ class ValidationError(ValueError):
 class ValidationManager:
     """Select and execute the validator for each specialist artifact."""
 
-    def __init__(self) -> None:
-        self._validators: dict[str, Validator] = {
+    def __init__(self, validators: dict[str, Validator] | None = None) -> None:
+        self._validators: dict[str, Validator] = validators or {
             "research": ResearchValidator(),
             "script": ScriptValidator(),
             "seo": SEOValidator(),
