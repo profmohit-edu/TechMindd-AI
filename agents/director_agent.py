@@ -19,9 +19,10 @@ class DirectorAgent(BaseAgent):
     def generate(
         self,
         topic: str,
-        _director_plan: Dict[str, Any] | None = None,
+        director_plan: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Generate a high-level content plan for downstream agents."""
+        del director_plan
         system_prompt = self._prompt_path.read_text(encoding="utf-8")
         user_prompt = f"Topic: {topic}"
         return self.provider.generate_structured_json(

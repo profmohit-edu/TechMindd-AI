@@ -1,11 +1,12 @@
-import logging
 import os
+
+os.environ.setdefault("OPENAI_API_KEY", "test")
+
+import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-os.environ.setdefault("OPENAI_API_KEY", "test")
 
 import factory
 from agents.research_agent import ResearchAgent
