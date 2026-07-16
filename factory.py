@@ -28,6 +28,7 @@ from processors.thumbnail_processor import ThumbnailProcessor
 from providers.provider_factory import ProviderFactory
 from rag.ingestion import IngestionPipeline
 from rag.paths import discover_documents, resolve_embeddings_dir, set_active_documents_dir
+from validation import ValidationError, ValidationManager
 
 
 LOGGER = logging.getLogger("techmindd.factory")
@@ -116,6 +117,7 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     )
 
     registry = AgentRegistry(provider)
+    validation_manager = ValidationManager()
 
     LOGGER.info("Running DirectorAgent")
     director_plan = registry.get("director").generate(topic)
@@ -124,6 +126,12 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
     def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
         agent = registry.get(name)
         payload = agent.generate(topic, director_plan)
+        try:
+            validation_manager.validate(name, payload)
+        except ValidationError:
+            LOGGER.warning("Retrying %s agent after validation failure", name)
+            payload = agent.generate(topic, director_plan)
+            validation_manager.validate(name, payload)
         return name, payload
 
     LOGGER.info("Starting generation for topic: %s", topic)
@@ -143,6 +151,9 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
                 agent_name, payload = future.result()
                 agent_payloads[agent_name] = payload
                 LOGGER.info("Agent %s completed", agent_name)
+            except ValidationError:
+                LOGGER.exception("Agent %s failed validation after one retry", name)
+                raise
             except Exception as exc:  # pragma: no cover
                 LOGGER.exception("Agent %s failed: %s", name, exc)
                 raise RuntimeError(f"Required specialist agent failed: {name}") from exc
