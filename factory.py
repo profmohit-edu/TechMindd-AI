@@ -46,7 +46,7 @@ class PipelineFactory:
 
 def build_factory() -> PipelineFactory:
     provider_factory = ProviderFactory()
-    provider = provider_factory.default_provider()
+    provider = provider_factory.managed_provider()
     parser = ResponseParser()
     template_engine = TemplateEngine()
     writer = Writer()
@@ -183,7 +183,8 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
     model_name = str(getattr(provider, "model", "unknown"))
-    usage = getattr(provider, "last_usage", {}) or {}
+    provider_metrics = provider.summary() if hasattr(provider, "summary") else {}
+    usage = provider_metrics or getattr(provider, "last_usage", {}) or {}
     assets = AssetManager()
     assets.write_metadata(
         package_dir,
@@ -193,6 +194,10 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
         execution_time=time.perf_counter() - started_at,
         prompt_tokens=int(usage.get("input_tokens", 0)),
         completion_tokens=int(usage.get("output_tokens", 0)),
+        estimated_cost=float(usage.get("estimated_cost", 0.0)),
+        provider_used=usage.get("provider_used", [provider_name]),
+        provider_fallback=usage.get("provider_fallback", []),
+        retries=int(usage.get("retries", 0)),
     )
     assets.write_manifest(package_dir, topic, provider_name, model_name)
     assets.create_zip(package_dir)

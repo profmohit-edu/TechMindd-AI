@@ -80,6 +80,9 @@ class AssetManager:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         estimated_cost: float = 0.0,
+        provider_used: str | list[str] | None = None,
+        provider_fallback: str | list[str] | None = None,
+        retries: int = 0,
     ) -> Path:
         metadata = {
             "topic": topic,
@@ -90,6 +93,9 @@ class AssetManager:
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
             "estimated_cost": estimated_cost,
+            "provider_used": provider_used if provider_used is not None else provider,
+            "provider_fallback": provider_fallback,
+            "retries": retries,
             "git_commit": self.git_commit(),
             "generated_at": datetime.now(UTC).isoformat(),
         }

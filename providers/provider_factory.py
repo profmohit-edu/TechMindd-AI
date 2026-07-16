@@ -8,6 +8,7 @@ from typing import Any
 
 import config
 from providers.gemini_provider import GeminiProvider
+from providers.failover import ProviderManager
 from providers.openai_provider import OpenAIProvider
 
 
@@ -43,6 +44,29 @@ class ProviderFactory:
         configured_name = getattr(config.settings, "provider", "openai")
         provider_name = str(configured_name).strip().lower() or "openai"
         return self.get_provider(provider_name)
+
+    def managed_provider(self) -> ProviderManager:
+        """Build the configured ordered provider chain."""
+        providers: list[tuple[str, Provider]] = []
+        for provider_name in config.settings.provider_priority:
+            if provider_name not in self._registry:
+                logger.warning("Skipping unsupported provider in priority list: %s", provider_name)
+                continue
+            try:
+                providers.append((provider_name, self.get_provider(provider_name)))
+            except Exception as exc:  # provider configuration errors are non-fatal when alternatives exist
+                logger.warning("Skipping unavailable provider %s: %s", provider_name, exc)
+
+        if not providers:
+            raise ValueError("No configured providers are available")
+
+        return ProviderManager(
+            providers,
+            max_retries=config.settings.provider_max_retries,
+            request_timeout_seconds=config.settings.provider_request_timeout_seconds,
+            token_budget=config.settings.run_token_budget,
+            cost_budget=config.settings.run_cost_budget,
+        )
 
     def supported_providers(self) -> list[str]:
         """Return the list of provider names supported by this factory."""
