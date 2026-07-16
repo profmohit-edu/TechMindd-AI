@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Dict
 
 import config
 from agents.registry import AgentRegistry
+from core.asset_manager import AssetManager
 from core.package_writer import PackageWriter
 from core.parser import ResponseParser
 from core.template_engine import TemplateEngine
@@ -66,44 +68,6 @@ def build_factory() -> PipelineFactory:
     )
 
 
-def _response_schema() -> Dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["package_name", "files"],
-        "properties": {
-            "package_name": {"type": "string"},
-            "files": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["path", "content", "template", "context"],
-                    "properties": {
-                        "path": {"type": "string"},
-                        "content": {"type": "string"},
-                        "template": {"type": "boolean"},
-                        "context": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["processor", "payload"],
-                            "properties": {
-                                "processor": {
-                                    "type": "string",
-                                    "enum": ["research", "script", "seo", "thumbnail", "social"],
-                                },
-                                "payload": {
-                                    "type": "object"
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-
 def _compute_documents_state(knowledge_path: Path) -> str:
     hashes: list[str] = []
     for path in discover_documents(knowledge_path):
@@ -138,6 +102,7 @@ def _ensure_knowledge_index(knowledge_path: Path) -> None:
 
 
 def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | None = None) -> Dict[str, Any]:
+    started_at = time.perf_counter()
     if knowledge_path:
         _ensure_knowledge_index(Path(knowledge_path))
 
@@ -152,17 +117,21 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
 
     registry = AgentRegistry(provider)
 
+    LOGGER.info("Running DirectorAgent")
+    director_plan = registry.get("director").generate(topic)
+    LOGGER.info("Director plan generated")
+
     def _generate_agent(name: str, topic: str) -> tuple[str, Any]:
         agent = registry.get(name)
-        payload = agent.generate(topic)
+        payload = agent.generate(topic, director_plan)
         return name, payload
 
     LOGGER.info("Starting generation for topic: %s", topic)
 
     agent_order = ["research", "script", "seo", "thumbnail", "social"]
     agent_payloads: Dict[str, Any] = {}
-    failed_agents = []
 
+    LOGGER.info("Launching concurrent specialist agents")
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
             executor.submit(_generate_agent, name, topic): name
@@ -175,34 +144,55 @@ def run_pipeline(*, topic: str, output_base_path: str, knowledge_path: str | Non
                 agent_payloads[agent_name] = payload
                 LOGGER.info("Agent %s completed", agent_name)
             except Exception as exc:  # pragma: no cover
-                failed_agents.append(name)
                 LOGGER.exception("Agent %s failed: %s", name, exc)
+                raise RuntimeError(f"Required specialist agent failed: {name}") from exc
 
-    if failed_agents:
-        LOGGER.warning("Some agents failed and will be excluded: %s", ", ".join(failed_agents))
-
+    raw_package_name = str(director_plan.get("package_name", "")) or topic
     bundle = {
-        "package_name": re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:48] or "output",
+        "package_name": re.sub(r"[^a-z0-9]+", "-", raw_package_name.lower()).strip("-")[:64]
+        or "output",
         "files": [],
     }
 
     for name in agent_order:
-        payload = agent_payloads.get(name)
-        if payload is None:
-            continue
+        processed_context = factory.processors[name].process(agent_payloads[name])
         bundle["files"].append(
             {
-                "path": f"{name}.json",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
-                "template": False,
-                "context": {
-                    "processor": name,
-                    "payload": payload,
-                },
+                "path": f"{name}.md",
+                "content": "",
+                "template": True,
+                "context": processed_context | {"processor": name},
             }
         )
 
-    return bundle
+    plan = factory.parser.parse(bundle)
+    package_dir = Path(output_base_path).expanduser().resolve() / plan.package_name
+    package_dir.mkdir(parents=True, exist_ok=True)
+    written = factory.package_writer.write_package(plan.files, base_path=package_dir)
+
+    provider_name = str(getattr(config.settings, "provider", provider.__class__.__name__))
+    model_name = str(getattr(provider, "model", "unknown"))
+    usage = getattr(provider, "last_usage", {}) or {}
+    assets = AssetManager()
+    assets.write_metadata(
+        package_dir,
+        topic,
+        provider_name,
+        model_name,
+        execution_time=time.perf_counter() - started_at,
+        prompt_tokens=int(usage.get("input_tokens", 0)),
+        completion_tokens=int(usage.get("output_tokens", 0)),
+    )
+    assets.write_manifest(package_dir, topic, provider_name, model_name)
+    assets.create_zip(package_dir)
+    LOGGER.info("Output package written successfully")
+
+    return {
+        "package_name": plan.package_name,
+        "output_path": str(package_dir),
+        "files_written": [str(path) for path in written],
+        "file_count": len(written),
+    }
 
 
 def main() -> None:
@@ -210,6 +200,8 @@ def main() -> None:
     parser.add_argument("--topic", required=True, help="Content topic")
     parser.add_argument(
         "--output",
+        "--output-dir",
+        dest="output",
         default="output",
         help="Base output directory",
     )
