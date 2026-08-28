@@ -29,6 +29,10 @@ ProviderManager applies priority-based failover, retry classification, request t
 
 The REST layer maintains in-memory background job state, while the dashboard polls it. Production middleware establishes request/correlation context, API-key authentication, rate limiting, safe headers, CORS, structured request logs, and HTTP metrics. Provider and generation paths emit domain-specific Prometheus metrics.
 
+## Technical learning assistant boundary
+
+The learner route uses the existing document ingestion, embedding, Chroma retrieval, and provider failover layers. Retrieval is deterministic for the indexed knowledge base and is returned as source cards with filename, page, chunk, relevance, and excerpt. The server supplies those numbered chunks to the configured model and validates the structured response. Generated explanation and activities are labeled separately from retrieved evidence; an answer is rejected if its `evidence_used` identifiers do not refer to retrieved chunks. Provider credentials remain in server environment variables and are never sent to the React client.
+
 ## Runtime boundaries
 
 - Stateless control plane: API routes, workflow orchestration, plugin discovery.

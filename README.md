@@ -2,11 +2,14 @@
 
 TechMindd-AI is a production-oriented, workflow-driven content generation platform. A Director plans each run; dynamically discovered plugins generate, validate, score, and reflect on artifacts; the packaging layer emits Markdown, reports, metadata, a manifest, and a ZIP archive. It is available through a CLI, FastAPI service, and React dashboard.
 
+The dashboard also exposes a Technical Learning Assistant mode. It retrieves project-owned technical knowledge, displays the retrieved chunks separately, and asks the configured server-side AI provider for a structured explanation, concepts, steps, example, misconceptions, practice checkpoints, and next-learning guidance. The API rejects responses that do not cite retrieved source identifiers.
+
 ## Capabilities
 
 - YAML workflows and automatic plugin discovery
 - OpenAI/Gemini provider failover with retry, timeout, token, and cost budgets
 - RAG-assisted research over PDF, DOCX, text, and Markdown sources
+- Learner-facing, RAG-grounded technical assistance with visible source context
 - Validation, quality scoring, and reflection before atomic packaging
 - Background REST jobs and a responsive React dashboard
 - JSON logs, request/correlation IDs, Prometheus metrics, API keys, rate limits, CORS, and secure headers
@@ -60,6 +63,7 @@ The dashboard stores its TechMindd API key only for the current browser session;
 ## Operations
 
 - Health: `GET /health`
+- Technical learning assistant: `POST /learn`
 - Metrics: `GET /metrics`
 - OpenAPI: `GET /docs`
 - Logs: JSON lines on stdout and rotating files under `logs/`
