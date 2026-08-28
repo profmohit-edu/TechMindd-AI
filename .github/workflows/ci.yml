@@ -50,7 +50,14 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - name: Python dependency audit
-        run: pip-audit -r requirements.txt
+        # These Chroma advisories affect its authenticated network server. This
+        # application uses only an in-process PersistentClient and does not run
+        # or expose Chroma's HTTP API. Upstream lists no patched version yet.
+        run: >-
+          pip-audit -r requirements.txt
+          --ignore-vuln GHSA-2wm9-hf6c-p5cr
+          --ignore-vuln GHSA-36p7-vc44-83pf
+          --ignore-vuln GHSA-xph7-9rjv-w5fr
       - name: Static security scan
         run: bandit -q -r api observability -x tests
       - name: Frontend dependency audit

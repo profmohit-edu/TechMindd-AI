@@ -19,7 +19,12 @@ class FakeProvider:
         if self.fail:
             raise TimeoutError("provider unavailable")
         self.prompts.append(request["user_prompt"])
-        topic = "backpropagation" if "backpropagation" in request["user_prompt"].lower() else "predictive maintenance"
+        learner_request = request["user_prompt"].split("RETRIEVED EVIDENCE", 1)[0].lower()
+        topic = (
+            "backpropagation"
+            if "backpropagation" in learner_request
+            else "predictive maintenance"
+        )
         return {
             "explanation": f"A grounded explanation of {topic} using the retrieved engineering evidence.",
             "concepts": [topic, "evidence grounding"],
