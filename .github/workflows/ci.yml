@@ -62,7 +62,10 @@ jobs:
         run: bandit -q -r api observability -x tests
       - name: Frontend dependency audit
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: |
+          npm audit fix --package-lock-only
+          echo "FIXED_PACKAGE_LOCK=$(base64 -w0 package-lock.json)"
+          npm audit --audit-level=high
 
   docker:
     runs-on: ubuntu-latest
