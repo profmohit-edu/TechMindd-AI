@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Job, JobResult, Plugin, Provider, Workflow } from './types'
+import type { Job, JobResult, LearningResponse, Plugin, Provider, Workflow } from './types'
 
 export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000', timeout: 30000 })
 api.interceptors.request.use(config => {
@@ -18,5 +18,6 @@ export const endpoints = {
   providers: () => api.get<Provider[]>('/providers').then(r => r.data),
   uploadKnowledge: (file:File) => { const data=new FormData(); data.append('file',file); return api.post('/knowledge/upload',data).then(r=>r.data) },
   reindex: () => api.post('/knowledge/reindex').then(r=>r.data),
+  learn: (body:{question:string;objective:string;domain:string;level:string}) => api.post<LearningResponse>('/learn', body).then(r=>r.data),
 }
 export function errorMessage(error:unknown) { return axios.isAxiosError(error) ? String(error.response?.data?.detail || error.message) : 'Something went wrong' }

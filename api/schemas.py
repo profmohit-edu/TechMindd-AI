@@ -89,3 +89,44 @@ class ProviderResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
+
+
+class LearningAssistantRequest(BaseModel):
+    question: str = Field(min_length=8, max_length=1200)
+    objective: str = Field(min_length=3, max_length=300)
+    domain: str = Field(min_length=2, max_length=100)
+    level: Literal["beginner", "intermediate", "advanced"] = "intermediate"
+
+    @field_validator("question", "objective", "domain")
+    @classmethod
+    def clean_learning_input(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("value cannot be empty")
+        return cleaned
+
+
+class LearningSource(BaseModel):
+    id: int = Field(ge=1)
+    filename: str
+    page: int = Field(ge=0)
+    chunk_id: int = Field(ge=0)
+    relevance: float = Field(ge=0, le=1)
+    excerpt: str = Field(min_length=1)
+
+
+class LearningAssistantResponse(BaseModel):
+    domain: str
+    level: str
+    objective: str
+    question: str
+    explanation: str = Field(min_length=20)
+    concepts: list[str] = Field(min_length=1)
+    steps: list[str] = Field(min_length=1)
+    example: str = Field(min_length=5)
+    misconceptions: list[str] = Field(min_length=1)
+    practice: list[str] = Field(min_length=1)
+    next_learning: list[str] = Field(min_length=1)
+    evidence_used: list[int] = Field(min_length=1)
+    sources: list[LearningSource] = Field(min_length=1)
+    provider: str

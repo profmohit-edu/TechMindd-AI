@@ -19,6 +19,8 @@ from api.schemas import (
     JobResultResponse,
     JobStatusResponse,
     KnowledgeResponse,
+    LearningAssistantRequest,
+    LearningAssistantResponse,
     OutputFile,
     PluginResponse,
     ProviderResponse,
@@ -192,3 +194,16 @@ async def reindex_knowledge() -> KnowledgeResponse:
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="healthy", service="TechMindd-AI")
+
+
+@router.post("/learn", response_model=LearningAssistantResponse)
+async def learn(payload: LearningAssistantRequest) -> LearningAssistantResponse:
+    """Return RAG-grounded, structured technical learning assistance."""
+    from learning import LearningAssistant
+
+    try:
+        return await run_in_threadpool(LearningAssistant().answer, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="The configured AI provider is temporarily unavailable") from exc

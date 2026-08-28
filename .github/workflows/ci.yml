@@ -22,7 +22,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Unit tests
-        run: pytest -q tests/test_template_engine.py tests/test_rag_pipeline.py
+        run: pytest -q tests/test_template_engine.py tests/test_rag_pipeline.py tests/test_learning_assistant.py
       - name: Integration tests
         run: pytest -q tests/test_director_integration.py tests/test_api_hardening.py
 
