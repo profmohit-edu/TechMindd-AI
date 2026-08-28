@@ -4,7 +4,7 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-ARG VITE_API_URL=/api
+ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
@@ -31,6 +31,7 @@ RUN addgroup --system techmindd && adduser --system --ingroup techmindd techmind
 COPY --from=python-build /wheels /wheels
 RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 COPY . .
+COPY --from=frontend-build /frontend/dist /app/frontend/dist
 RUN mkdir -p logs output knowledge/documents knowledge/embeddings && chown -R techmindd:techmindd /app
 USER techmindd
 EXPOSE 8000
@@ -43,3 +44,7 @@ COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-build /frontend/dist /usr/share/nginx/html
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1/healthz
+
+# Default production target: one Cloud Run-compatible container serving the
+# React application and FastAPI/RAG backend on port 8000.
+FROM api-runtime AS fullstack-runtime

@@ -30,6 +30,12 @@ This starts Vite with source mounts while retaining the same containerized API.
 
 Build the `api-runtime` target, inject secrets as environment variables, mount persistent volumes, and probe `/health`. Build `frontend-runtime` separately or publish `frontend/dist` through a CDN. Set `BUILD_SHA` and `BUILD_DATE` during the API image build. Run one API worker for v1.0 because background jobs are held in process memory.
 
+## Public Cloud Run demonstrator
+
+The default Docker target is a single full-stack container: FastAPI serves the API, the built React dashboard, and client-side routes on port 8000. The `Deploy to Cloud Run` workflow uses GitHub OpenID Connect for Google Cloud authentication and copies the Gemini key from a GitHub Actions secret into Google Secret Manager. It never embeds a provider credential in the frontend image or repository.
+
+Required GitHub Actions secrets are `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`, and `GCP_PROJECT_ID`. Before deployment, create `techmindd-gemini-api-key` directly in Google Secret Manager and grant the Cloud Run runtime service account Secret Manager Secret Accessor. The workflow references that existing secret but never reads or transfers its value. Trigger the workflow manually after configuring the identity. The deployment exposes the demonstrator publicly, rate-limits application requests, and obtains Gemini credentials server-side.
+
 ## Monitoring and logging
 
 Scrape `/metrics` every 15–30 seconds from a private network. Alert on an unhealthy gauge, elevated HTTP 5xx rate, generation failures, provider failures, latency, and budget exhaustion. Collect stdout JSON or `logs/techmindd.jsonl`; rotation defaults are configurable with `LOG_MAX_BYTES` and `LOG_BACKUP_COUNT`.
