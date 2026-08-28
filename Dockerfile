@@ -12,8 +12,7 @@ FROM python:3.12-slim AS python-build
 WORKDIR /build
 COPY requirements.txt ./
 ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /wheels \
+RUN pip wheel --wheel-dir /wheels \
     --index-url ${PYTORCH_INDEX_URL} \
     --extra-index-url https://pypi.org/simple \
     -r requirements.txt
