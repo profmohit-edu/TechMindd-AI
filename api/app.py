@@ -2,10 +2,12 @@
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from api.dependencies import get_job_service
@@ -54,3 +56,18 @@ app.add_middleware(
 @app.get("/metrics", include_in_schema=False)
 def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+frontend_dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+if frontend_dist.is_dir():
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+
+    @app.get("/{frontend_path:path}", include_in_schema=False)
+    async def frontend(frontend_path: str) -> FileResponse:
+        """Serve the React application and its client-side routes."""
+        candidate = (frontend_dist / frontend_path).resolve()
+        if candidate.is_file() and frontend_dist in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(frontend_dist / "index.html")
